@@ -1,8 +1,8 @@
- Usage Metering & Billing Engine
+# FinSight AI
 
 A backend API that records tenant usage, enforces subscription quotas, calculates usage-based costs, and synchronizes subscription state through Stripe-style webhooks.
 
-Built as a FlyRank Backend Track capstone.
+Built as a FinSight AI backend capstone.
 
 
 

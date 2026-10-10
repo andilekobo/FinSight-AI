@@ -21,6 +21,8 @@ services:
       MOCK_WEBHOOK_SECRET: mock_webhook_secret
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "postgres:host-gateway"
     depends_on:
       - postgres
 

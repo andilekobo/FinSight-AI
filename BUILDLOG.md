@@ -1,9 +1,9 @@
  Build Log
  Project
 
-Usage Metering & Billing Engine**
+FinSight AI**
 
-FlyRank Backend Track Capstone
+FinSight AI Backend Track Capstone
 
 ---
 
