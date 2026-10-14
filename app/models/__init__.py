@@ -4,7 +4,9 @@ from app.models.plan import Plan
 from app.models.subscription import Subscription
 from app.models.usage_event import UsageEvent
 from app.models.stripe_event import StripeEvent
+from app.models.bank_account import BankAccount
 from app.models.investec_account import InvestecAccount
 from app.models.investec_transaction import InvestecTransaction
 from app.models.ai_insight import AIInsight
 from app.models.category import Category
+from app.models.financial_transaction import FinancialTransaction

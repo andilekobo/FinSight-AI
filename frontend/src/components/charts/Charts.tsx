@@ -42,15 +42,15 @@ export function UsageAreaChart({ data, compact = false }: { data: Forecast[]; co
   );
 }
 
-export function CashFlowChart({ data }: { data: Forecast[] }) {
+export function CashFlowChart({ data, currency = "USD" }: { data: Forecast[]; currency?: string }) {
   return (
     <div className="chart-wrap">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 4, left: -15, bottom: 0 }}>
           <CartesianGrid stroke={gridColor} vertical={false} />
           <XAxis dataKey="month" axisLine={false} tickLine={false} tick={axisStyle} dy={9} />
-          <YAxis axisLine={false} tickLine={false} tick={axisStyle} tickFormatter={moneyTick} />
-          <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, ""]} contentStyle={{ border: "1px solid #e9eeeb", borderRadius: 10, fontSize: 12 }} />
+          <YAxis axisLine={false} tickLine={false} tick={axisStyle} tickFormatter={(value) => new Intl.NumberFormat("en-US", { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(Number(value))} />
+          <Tooltip formatter={(value) => [new Intl.NumberFormat("en-US", { style: "currency", currency }).format(Number(value)), ""]} contentStyle={{ border: "1px solid #e9eeeb", borderRadius: 10, fontSize: 12 }} />
           <Bar dataKey="income" name="Income" fill="#1ca879" radius={[4, 4, 0, 0]} barSize={15} />
           <Bar dataKey="expenses" name="Expenses" fill="#dcebe4" radius={[4, 4, 0, 0]} barSize={15} />
           <Line type="monotone" dataKey="expenses" name="Expenses trend" stroke="#93a9a1" strokeWidth={1.5} dot={false} />
