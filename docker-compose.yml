@@ -1,30 +1,58 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finsight-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://metering_user:metering_password@127.0.0.1:5433/metering_billing
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
+      INVESTEC_BASE_URL: https://openapisandbox.investec.com
+      INVESTEC_API_KEY: ${INVESTEC_API_KEY:-}
+      INVESTEC_CLIENT_ID: ${INVESTEC_CLIENT_ID:-}
+      INVESTEC_CLIENT_SECRET: ${INVESTEC_CLIENT_SECRET:-}
+      MOCK_WEBHOOK_SECRET: ${MOCK_WEBHOOK_SECRET:-change_me}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      ALL_PROXY: ${ALL_PROXY:-}
+      http_proxy: ${http_proxy:-}
+      https_proxy: ${https_proxy:-}
+      all_proxy: ${all_proxy:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres}
+      no_proxy: ${no_proxy:-localhost,127.0.0.1,postgres}
+    network_mode: host
+
   postgres:
     image: postgres:16
-    container_name: metering-postgres
+    container_name: finsight-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: metering_billing
       POSTGRES_USER: metering_user
       POSTGRES_PASSWORD: metering_password
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metering_user -d metering_billing"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - finsight-network
 
-  api:
-    build: .
-    container_name: metering-api
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql://metering_user:metering_password@postgres:5432/metering_billing
-      MOCK_WEBHOOK_SECRET: mock_webhook_secret
-    ports:
-      - "8000:8000"
-    extra_hosts:
-      - "postgres:host-gateway"
-    depends_on:
-      - postgres
+networks:
+  finsight-network:
+    name: finsight-ai_default
+    driver: bridge
 
 volumes:
   postgres_data:
+    name: finsight-ai_postgres_data

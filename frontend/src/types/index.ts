@@ -43,25 +43,6 @@ export type FinancialAccount = {
   lastSynced: string;
 };
 
-export type Transaction = {
-  id: string;
-  date: string;
-  description: string;
-  category: string;
-  type: "Income" | "Expense";
-  amount: number;
-  status: "Completed" | "Pending" | "Declined";
-};
-
-export type AIInsight = {
-  id: string;
-  category: "Trend" | "Forecast" | "Anomaly" | "Recommendation";
-  title: string;
-  description: string;
-  impact: string;
-  tone: "positive" | "warning" | "neutral";
-};
-
 export type Forecast = {
   month: string;
   actual?: number;
@@ -83,5 +64,4 @@ export type DashboardSummary = {
   account: FinancialAccount;
   usageTrend: Forecast[];
   cashFlow: Forecast[];
-  recentTransactions: Transaction[];
 };

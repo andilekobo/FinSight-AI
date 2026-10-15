@@ -3,34 +3,23 @@ import {
   cashFlowData,
   dashboardSummary,
   financialAccount,
-  insights,
-  transactions,
   usageHistory,
   usageTrend,
 } from "./mockData";
 import type {
-  AIInsight,
   Billing,
   DashboardSummary,
   FinancialAccount,
   Forecast,
-  Transaction,
   Usage,
 } from "../types";
-
-export type TransactionFilters = {
-  search?: string;
-  type?: "All" | "Income" | "Expense";
-  category?: string;
-};
 
 export const FUTURE_API_ROUTES = {
   dashboard: "GET /api/dashboard/summary",
   usage: "GET /api/usage",
   billing: "GET /api/billing",
   financialSummary: "GET /api/financial/summary",
-  transactions: "GET /api/transactions",
-  aiInsights: "GET /api/ai/insights",
+  aiInsights: "GET /ai/insights",
   aiChat: "POST /api/ai/chat",
 } as const;
 
@@ -42,16 +31,6 @@ export const getFinancialSummary = (): { account: FinancialAccount; cashFlow: Fo
   account: financialAccount,
   cashFlow: cashFlowData,
 });
-export const getTransactions = (filters: TransactionFilters = {}): Transaction[] =>
-  transactions.filter((transaction) => {
-    const matchesSearch = `${transaction.description} ${transaction.category} ${transaction.id}`
-      .toLowerCase()
-      .includes(filters.search?.toLowerCase() ?? "");
-    const matchesType = !filters.type || filters.type === "All" || transaction.type === filters.type;
-    const matchesCategory = !filters.category || filters.category === "All" || transaction.category === filters.category;
-    return matchesSearch && matchesType && matchesCategory;
-  });
-export const getAIInsights = (): AIInsight[] => insights;
 export const getUsageTrend = (): Forecast[] => usageTrend;
 
 export const postAIChat = (prompt: string): string => {

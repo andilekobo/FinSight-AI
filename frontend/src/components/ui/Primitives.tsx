@@ -87,10 +87,18 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`status-badge status-${normalized}`}><i />{status}</span>;
 }
 
-export function Currency({ value, compact = false }: { value: number; compact?: boolean }) {
+export function Currency({
+  value,
+  compact = false,
+  currency = "USD",
+}: {
+  value: number;
+  compact?: boolean;
+  currency?: string;
+}) {
   return <>{new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: compact ? 0 : 2,
     minimumFractionDigits: compact ? 0 : 2,
   }).format(value)}</>;
