@@ -1,110 +1,312 @@
 import { useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, CreditCard, Download } from "lucide-react";
-import { Link } from "react-router-dom";
-import { getAccounts, getFinancialSummary, getTransactions } from "../data/api";
-import type { Account, FinancialSummary, Transaction } from "../data/api";
-import { PageHeading, Panel } from "../components/ui/Primitives";
+import { Download } from "lucide-react";
+import { DashboardWidgets } from "../components/dashboard/DashboardWidgets";
+import { PageHeading } from "../components/ui/Primitives";
+import {
+  getAccounts,
+  getCurrentUserId,
+  getFinancialSummary,
+  getSavedInsights,
+  getTransactions,
+  type Account,
+  type FinancialSummary,
+  type SavedInsight,
+  type SavedInsightsResponse,
+  type Transaction,
+} from "../data/api";
+import type { Forecast } from "../types";
 
-function getUserIdFromToken(): string | null {
-  const token = localStorage.getItem("finsight_access_token");
-  if (!token) return null;
+type DashboardData = {
+  accounts: Account[] | null;
+  summary: FinancialSummary | null;
+  transactions: Transaction[] | null;
+  insights: SavedInsight[] | null;
+  cashFlow: Forecast[] | null;
+};
 
-  try {
-    const payload = token.split(".")[1];
-    if (!payload) return null;
+type DashboardResource = keyof DashboardData;
+type DashboardErrors = Partial<Record<DashboardResource, string>>;
 
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = JSON.parse(atob(base64)) as { sub?: unknown };
+type MonthPeriod = {
+  month: string;
+  startDate: string;
+  endDate: string;
+};
 
-    return typeof decoded.sub === "string" ? decoded.sub : null;
-  } catch {
-    return null;
+const emptyData: DashboardData = {
+  accounts: null,
+  summary: null,
+  transactions: null,
+  insights: null,
+  cashFlow: null,
+};
+
+function recentMonths(count: number): MonthPeriod[] {
+  const now = new Date();
+  return Array.from({ length: count }, (_, index) => {
+    const firstDay = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - count + index + 1, 1),
+    );
+    const year = firstDay.getUTCFullYear();
+    const monthIndex = firstDay.getUTCMonth();
+    const lastDay = new Date(Date.UTC(year, monthIndex + 1, 0));
+
+    return {
+      month: firstDay.toLocaleDateString("en-ZA", { month: "short", timeZone: "UTC" }),
+      startDate: `${firstDay.toISOString().slice(0, 10)}T00:00:00`,
+      endDate: `${lastDay.toISOString().slice(0, 10)}T23:59:59.999999`,
+    };
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isAmount(value: unknown): value is number | string {
+  return (
+    (typeof value === "number" && Number.isFinite(value)) ||
+    (typeof value === "string" &&
+      value.trim() !== "" &&
+      Number.isFinite(Number(value)))
+  );
+}
+
+function isAccountList(value: unknown): value is Account[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.id === "string" &&
+        typeof item.user_id === "string" &&
+        typeof item.account_name === "string" &&
+        typeof item.account_type === "string" &&
+        typeof item.currency === "string" &&
+        isAmount(item.balance),
+    )
+  );
+}
+
+function isFinancialSummary(value: unknown): value is FinancialSummary {
+  return (
+    isRecord(value) &&
+    typeof value.user_id === "string" &&
+    isAmount(value.total_income) &&
+    isAmount(value.total_expenses) &&
+    isAmount(value.total_fees) &&
+    isAmount(value.net_cash_flow) &&
+    typeof value.transaction_count === "number" &&
+    Number.isFinite(value.transaction_count) &&
+    isRecord(value.period) &&
+    (typeof value.period.start_date === "string" || value.period.start_date === null) &&
+    (typeof value.period.end_date === "string" || value.period.end_date === null)
+  );
+}
+
+function isTransactionList(value: unknown): value is Transaction[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.id === "string" &&
+        typeof item.user_id === "string" &&
+        typeof item.account_id === "string" &&
+        (item.transaction_type === "income" ||
+          item.transaction_type === "expense" ||
+          item.transaction_type === "fee") &&
+        typeof item.category === "string" &&
+        typeof item.description === "string" &&
+        isAmount(item.amount) &&
+        typeof item.currency === "string" &&
+        typeof item.transaction_date === "string",
+    )
+  );
+}
+
+function isSavedInsightsResponse(value: unknown): value is SavedInsightsResponse {
+  return (
+    isRecord(value) &&
+    typeof value.count === "number" &&
+    Number.isFinite(value.count) &&
+    Array.isArray(value.insights) &&
+    value.insights.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.id === "string" &&
+        (item.title === undefined || typeof item.title === "string") &&
+        (item.description === undefined || typeof item.description === "string") &&
+        (item.insight_type === undefined || typeof item.insight_type === "string") &&
+        (item.category === undefined || typeof item.category === "string") &&
+        (item.message === undefined || typeof item.message === "string") &&
+        (item.severity === undefined || typeof item.severity === "string") &&
+        (item.created_at === undefined || typeof item.created_at === "string"),
+    )
+  );
+}
+
+function readResource<T>(
+  result: PromiseSettledResult<T>,
+  isValid: (value: unknown) => value is T,
+  failureMessage: string,
+): { value: T | null; error: string | null } {
+  if (result.status === "rejected") {
+    return {
+      value: null,
+      error: result.reason instanceof Error ? result.reason.message : failureMessage,
+    };
   }
-}
 
-function money(value: number | string, currency = "ZAR"): string {
-  return new Intl.NumberFormat("en-ZA", {
-    style: "currency",
-    currency,
-  }).format(Number(value) || 0);
-}
+  if (!isValid(result.value)) {
+    return { value: null, error: `The backend returned an unexpected response for ${failureMessage.toLowerCase()}` };
+  }
 
-function dateLabel(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleDateString("en-ZA", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
+  return { value: result.value, error: null };
 }
 
 export function DashboardPage() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [summary, setSummary] = useState<FinancialSummary | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [data, setData] = useState<DashboardData>(emptyData);
+  const [errors, setErrors] = useState<DashboardErrors>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let active = true;
 
     async function loadDashboard() {
-      const userId = getUserIdFromToken();
+      setLoading(true);
+      setData(emptyData);
+      setErrors({});
 
+      const userId = getCurrentUserId();
       if (!userId) {
         if (active) {
-          setError("Your session could not be identified. Please log in again.");
+          setErrors({
+            accounts: "Your session could not identify the signed-in user. Please sign in again.",
+            summary: "Your session could not identify the signed-in user. Please sign in again.",
+            transactions: "Your session could not identify the signed-in user. Please sign in again.",
+            insights: "Your session could not identify the signed-in user. Please sign in again.",
+            cashFlow: "Your session could not identify the signed-in user. Please sign in again.",
+          });
           setLoading(false);
         }
         return;
       }
 
-      try {
-        const [accountData, summaryData, transactionData] = await Promise.all([
-          getAccounts(userId),
-          getFinancialSummary(userId),
-          getTransactions(userId),
+      const periods = recentMonths(6);
+      const [[accountsResult, summaryResult, transactionsResult, insightsResult], monthlyResults] =
+        await Promise.all([
+          Promise.allSettled([
+            getAccounts(userId),
+            getFinancialSummary(userId),
+            getTransactions(userId, 4),
+            getSavedInsights(),
+          ]),
+          Promise.allSettled(
+            periods.map((period) =>
+              getFinancialSummary(userId, {
+                startDate: period.startDate,
+                endDate: period.endDate,
+              }),
+            ),
+          ),
         ]);
 
-        if (active) {
-          setAccounts(accountData);
-          setSummary(summaryData);
-          setTransactions(transactionData);
+      if (!active) return;
+
+      const accounts = readResource(
+        accountsResult,
+        isAccountList,
+        "Could not load account balances.",
+      );
+      const summary = readResource(
+        summaryResult,
+        isFinancialSummary,
+        "Could not load financial totals.",
+      );
+      const transactions = readResource(
+        transactionsResult,
+        isTransactionList,
+        "Could not load recent transactions.",
+      );
+      const insights = readResource(
+        insightsResult,
+        isSavedInsightsResponse,
+        "Could not load saved insights.",
+      );
+      const cashFlow: Forecast[] = [];
+      let cashFlowError: string | undefined;
+      let successfulMonthCount = 0;
+      let monthsWithTransactions = 0;
+
+      monthlyResults.forEach((result, index) => {
+        const monthlySummary = readResource(
+          result,
+          isFinancialSummary,
+          "Could not load monthly cash-flow data.",
+        );
+        if (!monthlySummary.value) {
+          cashFlowError = monthlySummary.error ?? "Could not load monthly cash-flow data.";
+          return;
         }
-      } catch (err) {
-        if (active) {
-          setError(
-            err instanceof Error ? err.message : "Unable to load dashboard data."
-          );
-        }
-      } finally {
-        if (active) setLoading(false);
-      }
+
+        successfulMonthCount += 1;
+        if (monthlySummary.value.transaction_count > 0) monthsWithTransactions += 1;
+        cashFlow.push({
+          month: periods[index].month,
+          income: Number(monthlySummary.value.total_income),
+          expenses: Number(monthlySummary.value.total_expenses),
+        });
+      });
+
+      setData({
+        accounts: accounts.value,
+        summary: summary.value,
+        transactions: transactions.value,
+        insights: insights.value?.insights ?? null,
+        cashFlow:
+          successfulMonthCount === 0
+            ? null
+            : monthsWithTransactions > 0
+              ? cashFlow
+              : [],
+      });
+      setErrors({
+        ...(accounts.error ? { accounts: accounts.error } : {}),
+        ...(summary.error ? { summary: summary.error } : {}),
+        ...(transactions.error ? { transactions: transactions.error } : {}),
+        ...(insights.error ? { insights: insights.error } : {}),
+        ...(cashFlowError
+          ? {
+              cashFlow:
+                successfulMonthCount > 0
+                  ? "Some monthly periods could not be loaded; the chart shows only periods returned successfully."
+                  : cashFlowError,
+            }
+          : {}),
+      });
+      setLoading(false);
     }
 
     void loadDashboard();
-
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshKey]);
 
-  const totalBalance = accounts.reduce(
-    (total, account) => total + Number(account.balance || 0),
-    0
-  );
+  const today = new Date().toLocaleDateString("en-ZA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const hasErrors = Object.keys(errors).length > 0;
 
   return (
     <>
       <PageHeading
-        eyebrow={new Date().toLocaleDateString("en-ZA", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        }).toUpperCase()}
+        eyebrow={today.toUpperCase()}
         title="Overview"
         description="Your financial position and recent activity, based on your recorded data."
         action={
@@ -117,123 +319,28 @@ export function DashboardPage() {
         }
       />
 
-      {loading && <p role="status">Loading your financial data…</p>}
-
-      {!loading && error && (
-        <Panel title="Unable to load dashboard" subtitle="Check your session and API connection.">
-          <p role="alert">{error}</p>
-          <button className="button button-secondary" onClick={() => window.location.reload()}>
+      {hasErrors && (
+        <div className="empty-state" role="alert">
+          Some dashboard data could not be loaded. See the affected panels for
+          details.{" "}
+          <button
+            className="button button-secondary"
+            onClick={() => setRefreshKey((key) => key + 1)}
+          >
             Try again
           </button>
-        </Panel>
+        </div>
       )}
 
-      {!loading && !error && (
-        <>
-          <div className="metric-grid">
-            <div className="metric-card">
-              <span>Total account balances</span>
-              <strong>{money(totalBalance)}</strong>
-              <small>{accounts.length} account(s) recorded</small>
-            </div>
-            <div className="metric-card">
-              <span>Total income</span>
-              <strong>{money(summary?.total_income ?? 0)}</strong>
-              <small>Recorded transactions</small>
-            </div>
-            <div className="metric-card">
-              <span>Total expenses</span>
-              <strong>{money(summary?.total_expenses ?? 0)}</strong>
-              <small>Recorded transactions</small>
-            </div>
-            <div className="metric-card">
-              <span>Net cash flow</span>
-              <strong>{money(summary?.net_cash_flow ?? 0)}</strong>
-              <small>{summary?.transaction_count ?? 0} transaction(s) recorded</small>
-            </div>
-          </div>
-
-          <div className="dashboard-grid">
-            <Panel
-              title="Financial overview"
-              subtitle="Balances from your database accounts"
-              className="cashflow-panel"
-            >
-              {accounts.length === 0 ? (
-                <p>No accounts recorded yet. Add an account to begin tracking your finances.</p>
-              ) : (
-                <div className="transaction-list">
-                  {accounts.map((account) => (
-                    <div className="transaction-row" key={account.id}>
-                      <div className="transaction-icon"><CreditCard size={16} /></div>
-                      <div className="transaction-description">
-                        <strong>{account.account_name}</strong>
-                        <span>{account.account_type} · {account.currency}</span>
-                      </div>
-                      <strong>{money(account.balance, account.currency)}</strong>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Panel>
-
-            <Panel
-              title="Recent transactions"
-              subtitle="Latest transactions stored in your database"
-              className="transactions-panel"
-              action={<Link className="text-action" to="/transactions">View all <ArrowRight size={13} /></Link>}
-            >
-              {transactions.length === 0 ? (
-                <p>No transactions recorded yet. Your recent activity will appear here.</p>
-              ) : (
-                <div className="transaction-list compact-list">
-                  {transactions.map((transaction) => {
-                    const income = transaction.transaction_type === "income";
-
-                    return (
-                      <div className="transaction-row" key={transaction.id}>
-                        <div className={`transaction-icon ${income ? "transaction-income" : ""}`}>
-                          {income ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
-                        </div>
-                        <div className="transaction-description">
-                          <strong>{transaction.description}</strong>
-                          <span>{dateLabel(transaction.transaction_date)} · {transaction.category}</span>
-                        </div>
-                        <div className={`transaction-amount ${income ? "amount-income" : ""}`}>
-                          {income ? "+" : "−"}
-                          {money(transaction.amount, transaction.currency)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Panel>
-
-            <Panel
-              title="AI insights"
-              subtitle="Insights will appear when generated and saved by the backend"
-              className="insight-panel"
-            >
-              <p>No saved insights to display yet.</p>
-              <Link className="panel-link" to="/ai-insights">
-                Explore AI insights <ArrowRight size={14} />
-              </Link>
-            </Panel>
-
-            <Panel
-              title="Usage and billing"
-              subtitle="API usage and billing records"
-              className="breakdown-panel"
-            >
-              <p>Usage and billing figures are not displayed until actual records are available.</p>
-              <Link className="panel-link" to="/usage">
-                View usage <ArrowRight size={14} />
-              </Link>
-            </Panel>
-          </div>
-        </>
-      )}
+      <DashboardWidgets
+        accounts={data.accounts}
+        summary={data.summary}
+        transactions={data.transactions}
+        insights={data.insights}
+        cashFlow={data.cashFlow}
+        errors={errors}
+        loading={loading}
+      />
     </>
   );
 }

@@ -74,6 +74,11 @@ export interface FinancialSummary {
   };
 }
 
+export interface FinancialSummaryFilters {
+  startDate?: string;
+  endDate?: string;
+}
+
 export interface Transaction {
   id: string;
   user_id: string;
@@ -98,17 +103,29 @@ export interface SavedInsight {
   insight_type?: string;
   category?: string;
   message?: string;
+  severity?: string;
   created_at?: string;
   [key: string]: unknown;
+}
+
+export interface SavedInsightsResponse {
+  count: number;
+  insights: SavedInsight[];
 }
 
 export const getAccounts = (userId: string) =>
   request<Account[]>(`/accounts/?user_id=${encodeURIComponent(userId)}`);
 
-export const getFinancialSummary = (userId: string) =>
-  request<FinancialSummary>(
-    `/financial-analytics/summary?user_id=${encodeURIComponent(userId)}`,
-  );
+export const getFinancialSummary = (
+  userId: string,
+  filters: FinancialSummaryFilters = {},
+) => {
+  const params = new URLSearchParams({ user_id: userId });
+  if (filters.startDate) params.set("start_date", filters.startDate);
+  if (filters.endDate) params.set("end_date", filters.endDate);
+
+  return request<FinancialSummary>(`/financial-analytics/summary?${params}`);
+};
 
 export const getTransactions = (userId: string, limit = 100) =>
   request<Transaction[]>(
@@ -122,4 +139,4 @@ export const postAIChat = (message: string) =>
   });
 
 export const getSavedInsights = () =>
-  request<SavedInsight[]>("/ai/insights");
+  request<SavedInsightsResponse>("/ai/insights");

@@ -16,6 +16,11 @@ export default defineConfig({
       "/transactions": apiProxy,
       "/financial-analytics": apiProxy,
       "/ai": apiProxy,
+      "/billing": apiProxy,
+      "/usage": apiProxy,
+      "/generate": apiProxy,
+      "/webhooks": apiProxy,
+      "/investec": apiProxy,
     },
   },
 });

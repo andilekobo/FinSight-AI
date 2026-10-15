@@ -16,3 +16,10 @@ frontend/dist/
 
 # Local environment files
 .env
+
+# Local database
+finsight.db
+
+# Backup files
+*.bak
+*.before-network-fix

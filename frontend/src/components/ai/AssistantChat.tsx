@@ -1,23 +1,23 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   ArrowUp,
   Bot,
   ChartNoAxesCombined,
-  CircleHelp,
   Lightbulb,
-  Plus,
+  RotateCcw,
   Sparkles,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import { getCurrentUserId, postAIChat } from "../../data/api";
 import type { ChatMessage } from "../../types";
 
 const suggestions = [
-  { icon: ChartNoAxesCombined, text: "How much have we spent this month?" },
-  { icon: Lightbulb, text: "What is driving our technology costs?" },
-  { icon: CircleHelp, text: "What transactions are recorded in my account?" },
-  { icon: Sparkles, text: "Summarise my financial activity." },
-  { icon: CircleHelp, text: "What unusual spending can you identify?" },
-  { icon: ChartNoAxesCombined, text: "Explain my cash flow." },
+  { icon: ChartNoAxesCombined, text: "Analyse my financial overview." },
+  { icon: ChartNoAxesCombined, text: "Where does most of my money go?" },
+  { icon: Lightbulb, text: "Help me create a savings plan." },
+  { icon: Sparkles, text: "Identify my largest expenses." },
 ];
 
 export function AssistantChat() {
@@ -25,6 +25,39 @@ export function AssistantChat() {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [failedPrompt, setFailedPrompt] = useState<string | null>(null);
+  const scrollAnchor = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollAnchor.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages.length, loading]);
+
+  async function requestAnswer(prompt: string) {
+    try {
+      const result = await postAIChat(prompt);
+      const reply: ChatMessage = {
+        id: `${Date.now()}-assistant`,
+        role: "assistant",
+        content: result.answer,
+        time: new Date().toLocaleTimeString("en-ZA", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+      setMessages((current) => [...current, reply]);
+      setFailedPrompt(null);
+      setError("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not get a response from FinSight AI.",
+      );
+      setFailedPrompt(prompt);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function sendMessage(text: string) {
     const prompt = text.trim();
@@ -32,50 +65,52 @@ export function AssistantChat() {
 
     if (!getCurrentUserId()) {
       setError("Please sign in again before using the AI assistant.");
+      setFailedPrompt(null);
       return;
     }
-
-    const now = () =>
-      new Date().toLocaleTimeString("en-ZA", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
 
     const question: ChatMessage = {
       id: `${Date.now()}-user`,
       role: "user",
       content: prompt,
-      time: now(),
+      time: new Date().toLocaleTimeString("en-ZA", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
     };
 
     setMessages((current) => [...current, question]);
     setDraft("");
     setError("");
+    setFailedPrompt(null);
     setLoading(true);
+    await requestAnswer(prompt);
+  }
 
-    try {
-      const result = await postAIChat(prompt);
-      const reply: ChatMessage = {
-        id: `${Date.now()}-assistant`,
-        role: "assistant",
-        content: result.answer,
-        time: now(),
-      };
-      setMessages((current) => [...current, reply]);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not get a response from FinSight AI.",
-      );
-    } finally {
-      setLoading(false);
+  async function retryLastMessage() {
+    if (!failedPrompt || loading) return;
+
+    if (!getCurrentUserId()) {
+      setError("Please sign in again before using the AI assistant.");
+      setFailedPrompt(null);
+      return;
     }
+
+    setError("");
+    setLoading(true);
+    await requestAnswer(failedPrompt);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void sendMessage(draft);
+  }
+
+  function handleInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void sendMessage(draft);
+    }
   }
 
   return (
@@ -85,7 +120,7 @@ export function AssistantChat() {
           <div className="assistant-brand-icon"><Bot size={19} /></div>
           <div>
             <strong>Your financial copilot</strong>
-            <span>Connected to your financial records</span>
+            <span>Ask about your finances</span>
           </div>
         </div>
         <div className="context-divider" />
@@ -111,12 +146,12 @@ export function AssistantChat() {
       <div className="chat-main">
         {messages.length === 0 ? (
           <div className="chat-welcome">
-            <div className="chat-welcome-icon"><Bot size={25} /></div>
+            <div className="chat-welcome-icon"><Sparkles size={24} /></div>
             <span className="chat-welcome-kicker">FINSIGHT AI ASSISTANT</span>
-            <h2>Your numbers tell a story.<br /><span>Let’s find it together.</span></h2>
+            <h2>Your finances, in focus.<br /><span>Let’s make sense of them.</span></h2>
             <p>
-              Ask about your recorded transactions, spending, or cash flow.
-              If records are missing, FinSight will tell you.
+              Your personal AI partner for understanding spending, planning
+              savings, and finding clarity in your financial records.
             </p>
             <div className="suggestions-grid">
               {suggestions.map(({ icon: Icon, text }) => (
@@ -124,7 +159,7 @@ export function AssistantChat() {
                   key={text}
                   className="suggestion-chip"
                   onClick={() => void sendMessage(text)}
-                  disabled={loading}
+                  type="button"
                 >
                   <Icon size={15} />
                   <span>{text}</span>
@@ -134,7 +169,7 @@ export function AssistantChat() {
             </div>
           </div>
         ) : (
-          <div className="chat-messages">
+          <div className="chat-messages" role="log" aria-label="Conversation with FinSight AI" aria-live="polite">
             {messages.map((message) => (
               <div
                 className={`chat-message message-${message.role}`}
@@ -148,7 +183,29 @@ export function AssistantChat() {
                     {message.role === "assistant" ? "FinSight AI" : "You"}
                     <span>{message.time}</span>
                   </div>
-                  <div className="message-bubble">{message.content}</div>
+                  <div className="message-bubble">
+                    {message.role === "assistant" ? (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkBreaks]}
+                        components={{
+                          table: ({ children }) => (
+                            <div className="markdown-table-wrap">
+                              <table>{children}</table>
+                            </div>
+                          ),
+                          a: ({ children, href }) => (
+                            <a href={href} target="_blank" rel="noreferrer">
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    ) : (
+                      message.content
+                    )}
+                  </div>
                 </div>
                 {message.role === "user" && (
                   <div className="message-user-avatar">You</div>
@@ -160,34 +217,53 @@ export function AssistantChat() {
                 <div className="message-avatar"><Bot size={16} /></div>
                 <div className="message-body">
                   <div className="message-meta">FinSight AI</div>
-                  <div className="message-bubble">Checking your financial records…</div>
+                  <div className="message-bubble message-thinking" role="status" aria-label="FinSight AI is thinking">
+                    <span>FinSight AI is thinking</span>
+                    <span className="thinking-dots" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  </div>
                 </div>
               </div>
+            )}
+            <div ref={scrollAnchor} />
+          </div>
+        )}
+
+        {error && (
+          <div className="chat-error" role="alert">
+            <span>{error}</span>
+            {failedPrompt && (
+              <button
+                type="button"
+                className="chat-retry-button"
+                onClick={() => void retryLastMessage()}
+                disabled={loading}
+              >
+                <RotateCcw size={14} />
+                Retry
+              </button>
             )}
           </div>
         )}
 
-        {error && <div className="empty-state" role="alert">{error}</div>}
-
         <div className="chat-input-area">
-          <form className="chat-input-box" onSubmit={handleSubmit}>
-            <button
-              type="button"
-              className="chat-add-button"
-              aria-label="Attachments are not available yet"
-              disabled
-            >
-              <Plus size={17} />
-            </button>
-            <input
+          <form
+            className={`chat-input-box${draft.length > 0 ? " chat-input-typed" : ""}`}
+            onSubmit={handleSubmit}
+          >
+            <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Ask about your financial records..."
+              onKeyDown={handleInputKeyDown}
+              placeholder="Message FinSight AI..."
               aria-label="Message FinSight AI"
               maxLength={2000}
               disabled={loading}
+              rows={1}
             />
-            <span className="chat-input-hint">AI can make mistakes</span>
             <button
               type="submit"
               className="chat-send-button"
@@ -197,9 +273,10 @@ export function AssistantChat() {
               <ArrowUp size={17} />
             </button>
           </form>
+          <div className="chat-input-hint">Press Enter to send · Shift+Enter for a new line</div>
           <div className="chat-disclaimer">
             <Sparkles size={12} />
-            Powered by Gemini · Responses depend on available records
+            AI can make mistakes. Check important financial information.
           </div>
         </div>
       </div>

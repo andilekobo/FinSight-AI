@@ -1,10 +1,8 @@
 import type {
-  AIInsight,
   Billing,
   DashboardSummary,
   FinancialAccount,
   Forecast,
-  Transaction,
   Usage,
 } from "../types";
 
@@ -79,33 +77,10 @@ export const usageHistory: Usage[] = [
   { ...dashboardUsage, date: "Oct 03, 2026 · 11:18", status: "Failed", apiRequests: 228, inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0 },
 ];
 
-export const transactions: Transaction[] = [
-  { id: "TX-882104", date: "Oct 06, 2026", description: "Cloud infrastructure · AWS", category: "Cloud services", type: "Expense", amount: 2480.9, status: "Completed" },
-  { id: "TX-882103", date: "Oct 06, 2026", description: "Client payment · Acme Corp", category: "Client revenue", type: "Income", amount: 12500, status: "Completed" },
-  { id: "TX-882102", date: "Oct 05, 2026", description: "FinSight AI · Usage billing", category: "Technology", type: "Expense", amount: 1248.64, status: "Pending" },
-  { id: "TX-882101", date: "Oct 05, 2026", description: "Payroll · October cycle", category: "Payroll", type: "Expense", amount: 8400, status: "Completed" },
-  { id: "TX-882100", date: "Oct 04, 2026", description: "Client payment · Northstar", category: "Client revenue", type: "Income", amount: 8750, status: "Completed" },
-  { id: "TX-882099", date: "Oct 03, 2026", description: "Workspace · Figma", category: "Software", type: "Expense", amount: 240, status: "Completed" },
-  { id: "TX-882098", date: "Oct 02, 2026", description: "Cloud infrastructure · GCP", category: "Cloud services", type: "Expense", amount: 1862.3, status: "Completed" },
-  { id: "TX-882097", date: "Oct 01, 2026", description: "Client payment · Lumen Labs", category: "Client revenue", type: "Income", amount: 14200, status: "Completed" },
-  { id: "TX-882096", date: "Sep 30, 2026", description: "FinSight AI · September invoice", category: "Technology", type: "Expense", amount: 2914.8, status: "Completed" },
-  { id: "TX-882095", date: "Sep 29, 2026", description: "Team travel · London", category: "Travel", type: "Expense", amount: 680, status: "Declined" },
-  { id: "TX-882094", date: "Sep 28, 2026", description: "Client payment · Acme Corp", category: "Client revenue", type: "Income", amount: 9500, status: "Completed" },
-  { id: "TX-882093", date: "Sep 27, 2026", description: "Data platform · Snowflake", category: "Technology", type: "Expense", amount: 930, status: "Completed" },
-];
-
-export const insights: AIInsight[] = [
-  { id: "insight-1", category: "Forecast", title: "October spend is tracking above average", description: "At the current pace, your usage bill is projected to reach $3,842 by October 31 — 18% higher than September.", impact: "+18% vs. last month", tone: "warning" },
-  { id: "insight-2", category: "Trend", title: "Output tokens are driving cost growth", description: "Output token usage accounts for 68% of your bill. Recent customer-support sessions are generating longer responses.", impact: "68% of usage cost", tone: "neutral" },
-  { id: "insight-3", category: "Anomaly", title: "API activity spiked on October 5", description: "Request volume rose 34% above your 7-day average between 2–4 PM UTC. The increase came from /v1/chat/completions.", impact: "+34% request volume", tone: "warning" },
-  { id: "insight-4", category: "Recommendation", title: "Enable prompt caching for repeat requests", description: "Your repeated system prompts could benefit from caching. Based on current input volume, this may reduce token charges by around $186/month.", impact: "Save ~$186 / month", tone: "positive" },
-];
-
 export const dashboardSummary: DashboardSummary = {
   usage: dashboardUsage,
   billing,
   account: financialAccount,
   usageTrend,
   cashFlow: cashFlowData,
-  recentTransactions: transactions.slice(0, 5),
 };

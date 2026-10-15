@@ -9,18 +9,23 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://metering_user:metering_password@postgres:5432/metering_billing
+      DATABASE_URL: postgresql://metering_user:metering_password@127.0.0.1:5433/metering_billing
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
       INVESTEC_BASE_URL: https://openapisandbox.investec.com
-      INVESTEC_API_KEY: ${INVESTEC_API_KEY}
-      INVESTEC_CLIENT_ID: ${INVESTEC_CLIENT_ID}
-      INVESTEC_CLIENT_SECRET: ${INVESTEC_CLIENT_SECRET}
+      INVESTEC_API_KEY: ${INVESTEC_API_KEY:-}
+      INVESTEC_CLIENT_ID: ${INVESTEC_CLIENT_ID:-}
+      INVESTEC_CLIENT_SECRET: ${INVESTEC_CLIENT_SECRET:-}
       MOCK_WEBHOOK_SECRET: ${MOCK_WEBHOOK_SECRET:-change_me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-    ports:
-      - "8001:8000"
-    networks:
-      - finsight-network
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      ALL_PROXY: ${ALL_PROXY:-}
+      http_proxy: ${http_proxy:-}
+      https_proxy: ${https_proxy:-}
+      all_proxy: ${all_proxy:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres}
+      no_proxy: ${no_proxy:-localhost,127.0.0.1,postgres}
+    network_mode: host
 
   postgres:
     image: postgres:16
@@ -51,5 +56,3 @@ networks:
 volumes:
   postgres_data:
     name: finsight-ai_postgres_data
-
- 
