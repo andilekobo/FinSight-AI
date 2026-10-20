@@ -15,6 +15,30 @@ import { saveCurrentUserProfile } from "../data/userProfile";
 
 type Feedback = { kind: "error"; message: string } | null;
 
+const AUTH_REQUEST_TIMEOUT_MS = 15_000;
+
+function getApiErrorMessage(result: unknown): string | null {
+  if (typeof result !== "object" || result === null || !("detail" in result)) {
+    return null;
+  }
+
+  const detail = result.detail;
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return null;
+
+  return detail
+    .map((item: unknown) =>
+      typeof item === "object" &&
+      item !== null &&
+      "msg" in item &&
+      typeof item.msg === "string"
+        ? item.msg
+        : "",
+    )
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function AuthPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -44,10 +68,17 @@ export function AuthPage() {
     setFeedback(null);
     setLoading(true);
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      AUTH_REQUEST_TIMEOUT_MS,
+    );
+
     try {
       const response = await fetch(isRegister ? "/auth/register" : "/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify(
           isRegister
             ? {
@@ -59,18 +90,14 @@ export function AuthPage() {
         ),
       });
 
-      const result = await response.json().catch(() => null);
+      const result: unknown = await response.json().catch(() => null);
 
       if (!response.ok) {
-        const detail = result?.detail;
         const message =
-          typeof detail === "string"
-            ? detail
-            : Array.isArray(detail)
-              ? detail.map((item: { msg?: string }) => item.msg ?? "").filter(Boolean).join(" ")
-              : isRegister
-                ? "Registration failed. Check your details and try again."
-                : "Login failed. Check your email and password.";
+          getApiErrorMessage(result) ??
+          (isRegister
+            ? `Registration failed (HTTP ${response.status}). Check your details and try again.`
+            : `Login failed (HTTP ${response.status}). Check your email and password.`);
 
         setFeedback({ kind: "error", message });
         return;
@@ -81,7 +108,15 @@ export function AuthPage() {
         return;
       }
 
-      if (typeof result?.access_token !== "string" || !result.access_token) {
+      const accessToken =
+        typeof result === "object" &&
+        result !== null &&
+        "access_token" in result &&
+        typeof result.access_token === "string"
+          ? result.access_token
+          : null;
+
+      if (!accessToken) {
         setFeedback({
           kind: "error",
           message: "The API did not return an access token. Please try again.",
@@ -89,15 +124,19 @@ export function AuthPage() {
         return;
       }
 
-      localStorage.setItem("finsight_access_token", result.access_token);
-      saveCurrentUserProfile(result, result.access_token, email);
+      localStorage.setItem("finsight_access_token", accessToken);
+      saveCurrentUserProfile(result, accessToken, email);
       navigate("/dashboard", { replace: true });
-    } catch {
+    } catch (error) {
+      const timedOut = error instanceof Error && error.name === "AbortError";
       setFeedback({
         kind: "error",
-        message: "Could not reach the API. Check that the backend is running.",
+        message: timedOut
+          ? "The API request timed out. The backend may be unavailable or taking too long; please try again."
+          : "Could not reach the API. Check that the backend is running and reachable.",
       });
     } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
     }
   }

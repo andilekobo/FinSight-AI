@@ -1,7 +1,8 @@
-
+﻿
 import json
 import os
 import time
+from uuid import uuid4
 from collections import defaultdict
 from decimal import Decimal
 
@@ -13,6 +14,9 @@ from google import genai
 from app.db.database import SessionLocal
 from app.models.user import User
 from app.models.financial_transaction import FinancialTransaction
+from app.models.usage_event import UsageEvent
+from app.services.tenant_service import ensure_billing_for_user
+from app.services.meter_service import calculate_usage
 from app.services.token_service import decode_access_token
 
 router = APIRouter(prefix="/ai/assistant", tags=["AI Assistant"])
@@ -45,6 +49,8 @@ def chat(
         user = db.scalar(select(User).where(User.id == user_id))
         if user is None:
             raise HTTPException(status_code=401, detail="User not found")
+
+        tenant = ensure_billing_for_user(db, user)
 
         # Aggregate every stored transaction, grouped by currency and type.
         aggregate_rows = db.execute(
@@ -166,7 +172,7 @@ FINANCIAL ADVICE
 - Explain where spending is concentrated and which categories deserve attention.
 - Suggest savings targets or budgets as proposals, not guaranteed outcomes.
 - When suggesting a monthly budget, explain the period and calculation used.
-- Do not assume the user’s salary, debts, household responsibilities, or financial goals.
+- Do not assume the userâ€™s salary, debts, household responsibilities, or financial goals.
 - Ask a concise follow-up question when essential information is missing.
 - For affordability questions, consider the available income, expenses, obligations, and
   time period. Do not claim to know the user's current bank balance unless supplied.
@@ -209,11 +215,7 @@ User question:
         response = None
 
         # Try alternative supported models when one is unavailable.
-        for model_name in (
-            "gemini-3.6-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.8-flash",
-        ):
+        for model_name in ("gemini-3.8-flash",):
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -240,6 +242,49 @@ User question:
 
         if not response.text:
             raise HTTPException(status_code=502, detail="AI returned no answer")
+
+        metadata = getattr(response, "usage_metadata", None)
+
+        def token_count(name):
+            value = getattr(metadata, name, 0) if metadata else 0
+            try:
+                return max(0, int(value or 0))
+            except (TypeError, ValueError):
+                return 0
+
+        input_tokens = token_count("prompt_token_count")
+        cached_input_tokens = min(
+            input_tokens,
+            token_count("cached_content_token_count"),
+        )
+        reasoning_tokens = token_count("thoughts_token_count")
+        output_tokens = token_count("candidates_token_count")
+
+        event = UsageEvent(
+            tenant_id=tenant.id,
+            idempotency_key=f"ai-assistant:{user.id}:{uuid4()}",
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            reasoning_tokens=reasoning_tokens,
+            output_tokens=output_tokens,
+            total_billable_tokens=calculate_usage(
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                reasoning_tokens=reasoning_tokens,
+                output_tokens=output_tokens,
+            )["total_billable_tokens"],
+        )
+
+        try:
+            db.add(event)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            print(f"Usage recording failed: {type(exc).__name__}: {exc}", flush=True)
+            raise HTTPException(
+                status_code=503,
+                detail="AI responded, but usage could not be recorded.",
+            ) from exc
 
         return {
             "answer": response.text,
