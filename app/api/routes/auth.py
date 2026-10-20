@@ -12,6 +12,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.services.auth_service import hash_password, verify_password
+from app.services.tenant_service import ensure_billing_for_user
 from app.services.token_service import create_access_token
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -26,12 +27,7 @@ def register_user(
     request: RegisterRequest,
     db: Session = Depends(get_db),
 ):
-    existing_user = (
-        db.query(User)
-        .filter(User.email == request.email)
-        .first()
-    )
-
+    existing_user = db.query(User).filter(User.email == request.email).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -45,11 +41,15 @@ def register_user(
         password_hash=hash_password(request.password),
     )
 
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    return user
+    try:
+        db.add(user)
+        db.flush()
+        ensure_billing_for_user(db, user)
+        db.refresh(user)
+        return user
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -57,21 +57,13 @@ def login_user(
     request: LoginRequest,
     db: Session = Depends(get_db),
 ):
-    user = (
-        db.query(User)
-        .filter(User.email == request.email)
-        .first()
-    )
+    user = db.query(User).filter(User.email == request.email).first()
 
-    if not user or not verify_password(
-        request.password, user.password_hash
-    ):
+    if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(user.id)
-
-    return TokenResponse(access_token=access_token)
+    return TokenResponse(access_token=create_access_token(user.id))

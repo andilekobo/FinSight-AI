@@ -1,15 +1,26 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const apiProxy = {
+  target: "http://127.0.0.1:8001",
+  changeOrigin: true,
+};
+
 export default defineConfig({
   plugins: [react()],
   server: {
     host: "0.0.0.0",
     proxy: {
-      "/auth": {
-        target: "http://127.0.0.1:8000",
-        changeOrigin: true,
-      },
+      "/auth": apiProxy,
+      "/accounts": apiProxy,
+      "/transactions": apiProxy,
+      "/financial-analytics": apiProxy,
+      "/ai": apiProxy,
+      "/billing": apiProxy,
+      "/usage": apiProxy,
+      "/generate": apiProxy,
+      "/webhooks": apiProxy,
+      "/investec": apiProxy,
     },
   },
 });

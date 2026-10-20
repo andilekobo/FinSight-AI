@@ -1,41 +1,197 @@
-import { useMemo, useState } from "react";
-import { Activity, ArrowDownToLine, Coins, Gauge, Zap } from "lucide-react";
-import { UsageAreaChart } from "../components/charts/Charts";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Activity,
+  CircleDollarSign,
+  Coins,
+  RefreshCw,
+  Zap,
+} from "lucide-react";
+import { getUsage, type UsageResponse } from "../data/api";
 import { MetricCard, PageHeading, Panel, StatusBadge } from "../components/ui/Primitives";
-import { getUsage, getUsageTrend } from "../data/mockApi";
+import { formatZarCents } from "../utils/currency";
+
+const number = (value: number) => new Intl.NumberFormat("en-ZA").format(value);
+const date = (value: string) => new Intl.DateTimeFormat("en-ZA", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+}).format(new Date(value));
+
+function usagePercent(used: number, limit: number): number | null {
+  return limit > 0 ? Math.min(100, (used / limit) * 100) : null;
+}
+
+function remainingCapacity(used: number, limit: number): string {
+  return limit > 0 ? `${number(Math.max(0, limit - used))} remaining` : "Limit unavailable";
+}
+
+function QuotaMeter({
+  label,
+  used,
+  limit,
+}: {
+  label: string;
+  used: number;
+  limit: number;
+}) {
+  const percent = usagePercent(used, limit);
+  const remaining = Math.max(0, limit - used);
+
+  return (
+    <div className="usage-quota">
+      <div className="usage-quota-heading">
+        <span>{label}</span>
+        <strong>{percent === null ? "Limit unavailable" : `${percent.toFixed(1)}% used`}</strong>
+      </div>
+      <progress
+        className="usage-progress"
+        value={percent ?? 0}
+        max={100}
+        aria-label={`${label}: ${number(used)} of ${number(limit)} used`}
+      />
+      <div className="usage-quota-scale">
+        <span>{number(used)} used</span>
+        <span>{number(limit)} limit</span>
+      </div>
+      {percent !== null && (
+        <p className="usage-remaining">{number(remaining)} remaining this period</p>
+      )}
+    </div>
+  );
+}
 
 export function UsagePage() {
-  const [range, setRange] = useState("30 days");
-  const [status, setStatus] = useState("All");
-  const rows = useMemo(() => getUsage().filter((row) => status === "All" || row.status === status), [status]);
-  const usage = getUsage()[0];
+  const [data, setData] = useState<UsageResponse | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setData(await getUsage());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load usage.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const usage = data?.usage;
+  const tokens = usage?.tokens;
+  const cost = data?.cost;
 
   return (
     <>
-      <PageHeading eyebrow="METERING & ANALYTICS" title="Usage" description="Monitor your API activity and token consumption." action={<button className="button button-secondary"><ArrowDownToLine size={15} /> Export CSV</button>} />
-      <div className="metric-grid metric-grid-three">
-        <MetricCard label="API requests" value={usage.apiRequests.toLocaleString()} change="8.4%" detail="vs. previous period" icon={<Activity size={18} />} tone="green" />
-        <MetricCard label="Total tokens" value={`${(usage.totalTokens / 1_000_000).toFixed(1)}M`} change="12.6%" detail="this billing period" icon={<Coins size={18} />} tone="blue" />
-        <MetricCard label="Quota utilization" value={`${Math.round((usage.totalTokens / usage.quota) * 100)}%`} detail={`${(usage.quota / 1_000_000).toFixed(0)}M monthly limit`} icon={<Gauge size={18} />} tone="amber" direction="down" />
-      </div>
-      <div className="two-column-grid usage-charts-grid">
-        <Panel title="Usage over time" subtitle="Estimated cost by month" action={<select className="select-compact" value={range} onChange={(event) => setRange(event.target.value)}><option>30 days</option><option>90 days</option><option>6 months</option></select>}>
-          <UsageAreaChart data={getUsageTrend()} />
-        </Panel>
-        <Panel title="Token breakdown" subtitle="Volume in the current billing period">
-          <div className="token-total"><strong>{(usage.totalTokens / 1_000_000).toFixed(1)}M</strong><span>total tokens</span></div>
-          <div className="token-breakdown-bar"><span style={{ width: `${usage.inputTokens / usage.totalTokens * 100}%` }} /><span style={{ width: `${usage.outputTokens / usage.totalTokens * 100}%` }} /></div>
-          <div className="token-legend"><div><i className="legend-dot legend-green" /><span>Input tokens</span><strong>{(usage.inputTokens / 1_000_000).toFixed(1)}M</strong></div><div><i className="legend-dot legend-blue" /><span>Output tokens</span><strong>{(usage.outputTokens / 1_000_000).toFixed(1)}M</strong></div></div>
-          <div className="quota-note"><Zap size={15} /><span>Your monthly quota resets on November 1, 2026.</span></div>
-        </Panel>
-      </div>
-      <Panel title="Usage history" subtitle="A detailed log of your API activity" className="table-panel" action={<label className="filter-select">Status <select value={status} onChange={(event) => setStatus(event.target.value)}><option>All</option><option>Success</option><option>Rate limited</option><option>Failed</option></select></label>}>
-        <div className="table-scroll"><table><thead><tr><th>DATE & TIME</th><th>ENDPOINT</th><th>API REQUESTS</th><th>INPUT TOKENS</th><th>OUTPUT TOKENS</th><th>EST. COST</th><th>STATUS</th></tr></thead>
-          <tbody>{rows.map((row) => <tr key={row.date}><td>{row.date}</td><td><code className="endpoint-code">{row.endpoint}</code></td><td>{row.apiRequests.toLocaleString()}</td><td>{row.inputTokens.toLocaleString()}</td><td>{row.outputTokens.toLocaleString()}</td><td className="table-amount">${row.cost.toFixed(2)}</td><td><StatusBadge status={row.status} /></td></tr>)}</tbody>
-        </table></div>
-        {rows.length === 0 && <div className="empty-state">No usage records match this filter.</div>}
-        <div className="table-footer">Showing <strong>{rows.length}</strong> of 248 records <span>Page 1 of 25</span></div>
-      </Panel>
+      <PageHeading
+        eyebrow="METERING & ANALYTICS"
+        title="Usage"
+        description="Understand your recorded activity, quota consumption and charges for this billing period."
+      />
+
+      {loading && (
+        <div className="data-state usage-state" role="status">
+          <span className="data-state-spinner" aria-hidden="true" />
+          <div><strong>Loading usage</strong><p>Retrieving your latest metering details.</p></div>
+        </div>
+      )}
+      {error && (
+        <div className="data-state data-state-error usage-state" role="alert">
+          <div>
+            <strong>Usage could not be loaded</strong>
+            <p>{error}</p>
+          </div>
+          <button className="button button-secondary" type="button" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={14} /> Try again
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && data && usage && tokens && cost && (
+        <div className="usage-page-content">
+          <div className="metric-grid usage-metrics">
+            <MetricCard
+              label="API calls"
+              value={number(usage.api_calls)}
+              detail={remainingCapacity(usage.api_calls, usage.api_call_limit)}
+              icon={<Activity size={17} />}
+              tone="green"
+            />
+            <MetricCard
+              label="Billable tokens"
+              value={number(tokens.total_billable_tokens)}
+              detail={remainingCapacity(tokens.total_billable_tokens, usage.token_limit)}
+              icon={<Zap size={17} />}
+              tone="blue"
+            />
+            <MetricCard
+              label="Recorded charges"
+              value={<span className="usage-money">{formatZarCents(cost.total_cost_cents)}</span>}
+              detail="Current billing period"
+              icon={<CircleDollarSign size={17} />}
+              tone="amber"
+            />
+          </div>
+
+          <div className="two-column-grid usage-content-grid">
+            <Panel
+              title="Quota overview"
+              subtitle={`Plan: ${data.subscription.plan.name}`}
+              className="usage-detail-panel"
+              action={<StatusBadge status={data.subscription.status} />}
+            >
+              <div className="usage-period">
+                <span>Billing period</span>
+                <strong>{date(data.billing_period.start)} – {date(data.billing_period.end)}</strong>
+              </div>
+              <div className="usage-quota-list">
+                <QuotaMeter label="API calls" used={usage.api_calls} limit={usage.api_call_limit} />
+                <QuotaMeter
+                  label="Billable tokens"
+                  used={tokens.total_billable_tokens}
+                  limit={usage.token_limit}
+                />
+              </div>
+            </Panel>
+
+            <Panel
+              title="Recorded usage costs"
+              subtitle="Charges reported for this period"
+              className="usage-detail-panel"
+              action={<span className="panel-heading-spacer" aria-hidden="true" />}
+            >
+              <div className="usage-cost-total">
+                <span>Total recorded charges</span>
+                <strong className="usage-money">{formatZarCents(cost.total_cost_cents)}</strong>
+              </div>
+              <div className="usage-cost-list">
+                <div><span><i className="usage-cost-dot usage-cost-api" />API calls</span><strong className="usage-money">{formatZarCents(cost.api_call_cost_cents)}</strong></div>
+                <div><span><i className="usage-cost-dot usage-cost-input" />Input tokens</span><strong className="usage-money">{formatZarCents(cost.input_cost_cents)}</strong></div>
+                <div><span><i className="usage-cost-dot usage-cost-cached" />Cached input tokens</span><strong className="usage-money">{formatZarCents(cost.cached_input_cost_cents)}</strong></div>
+                <div><span><i className="usage-cost-dot usage-cost-output" />Output tokens</span><strong className="usage-money">{formatZarCents(cost.output_cost_cents)}</strong></div>
+              </div>
+            </Panel>
+          </div>
+
+          <Panel
+            title="Token breakdown"
+            subtitle="Token totals recorded by the metering system"
+            className="usage-token-panel"
+            action={<span className="usage-token-total"><Coins size={14} />{number(tokens.total_billable_tokens)} billable</span>}
+          >
+            <div className="usage-token-grid">
+              <div><span>Input tokens</span><strong>{number(tokens.input_tokens)}</strong></div>
+              <div><span>Cached input tokens</span><strong>{number(tokens.cached_input_tokens)}</strong></div>
+              <div><span>Reasoning tokens</span><strong>{number(tokens.reasoning_tokens)}</strong></div>
+              <div><span>Output tokens</span><strong>{number(tokens.output_tokens)}</strong></div>
+            </div>
+            {data.metering_note && <p className="usage-note">{data.metering_note}</p>}
+          </Panel>
+          <p className="usage-footnote">Only activity recorded by the metering system is included. No sample history is shown.</p>
+        </div>
+      )}
     </>
   );
 }

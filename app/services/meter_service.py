@@ -4,7 +4,7 @@ def calculate_usage(
     reasoning_tokens: int,
     output_tokens: int,
 ):
-    billable_input_tokens = input_tokens - cached_input_tokens
+    billable_input_tokens = max(input_tokens - cached_input_tokens, 0)
 
     billable_output_tokens = reasoning_tokens + output_tokens
 

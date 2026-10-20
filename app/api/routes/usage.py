@@ -1,59 +1,40 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_current_user
 from app.db.database import get_db
 from app.models.plan import Plan
 from app.models.subscription import Subscription
 from app.models.usage_event import UsageEvent
+from app.models.user import User
 from app.services.billing_service import calculate_total_cost
+from app.services.tenant_service import ensure_billing_for_user
 
 router = APIRouter()
 
 
-@router.get("/usage/{tenant_id}")
-def get_usage(
-    tenant_id: str,
-    db: Session = Depends(get_db),
-):
-    # Current month window
+def build_usage_response(tenant_id: str, db: Session) -> dict:
     now = datetime.utcnow()
     month_start = datetime(now.year, now.month, 1)
+    next_month = (
+        datetime(now.year + 1, 1, 1)
+        if now.month == 12
+        else datetime(now.year, now.month + 1, 1)
+    )
 
-    if now.month == 12:
-        next_month = datetime(now.year + 1, 1, 1)
-    else:
-        next_month = datetime(now.year, now.month + 1, 1)
-
-    # Get tenant subscription
     subscription = db.scalar(
-        select(Subscription).where(
-            Subscription.tenant_id == tenant_id
-        )
+        select(Subscription).where(Subscription.tenant_id == tenant_id)
     )
+    if subscription is None:
+        raise HTTPException(status_code=404, detail="Subscription not found")
 
-    if not subscription:
-        return {
-            "tenant_id": tenant_id,
-            "error": "Tenant subscription not found",
-        }
+    plan = db.get(Plan, subscription.plan_id)
+    if plan is None:
+        raise HTTPException(status_code=503, detail="Subscription plan not found")
 
-    # Get current plan
-    plan = db.scalar(
-        select(Plan).where(
-            Plan.id == subscription.plan_id
-        )
-    )
-
-    if not plan:
-        return {
-            "tenant_id": tenant_id,
-            "error": "Tenant plan not found",
-        }
-
-    # Get current month's usage
     events = db.scalars(
         select(UsageEvent).where(
             UsageEvent.tenant_id == tenant_id,
@@ -63,26 +44,11 @@ def get_usage(
     ).all()
 
     api_calls = len(events)
-
-    input_tokens = sum(
-        event.input_tokens for event in events
-    )
-
-    cached_input_tokens = sum(
-        event.cached_input_tokens for event in events
-    )
-
-    reasoning_tokens = sum(
-        event.reasoning_tokens for event in events
-    )
-
-    output_tokens = sum(
-        event.output_tokens for event in events
-    )
-
-    total_billable_tokens = sum(
-        event.total_billable_tokens for event in events
-    )
+    input_tokens = sum(event.input_tokens for event in events)
+    cached_input_tokens = sum(event.cached_input_tokens for event in events)
+    reasoning_tokens = sum(event.reasoning_tokens for event in events)
+    output_tokens = sum(event.output_tokens for event in events)
+    total_billable_tokens = sum(event.total_billable_tokens for event in events)
 
     cost = calculate_total_cost(
         api_calls=api_calls,
@@ -120,4 +86,29 @@ def get_usage(
             "token_limit": plan.token_limit,
         },
         "cost": cost,
+        "metering_note": (
+            "Based on persisted usage events. AI assistant requests are "
+            "excluded unless they are recorded as usage events."
+        ),
     }
+
+
+@router.get("/usage/me")
+def get_my_usage(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    tenant = ensure_billing_for_user(db, user)
+    return build_usage_response(tenant.id, db)
+
+
+@router.get("/usage/{tenant_id}")
+def get_usage_for_tenant(
+    tenant_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    tenant = ensure_billing_for_user(db, user)
+    if tenant_id != tenant.id:
+        raise HTTPException(status_code=403, detail="Access to this tenant is forbidden")
+    return build_usage_response(tenant.id, db)

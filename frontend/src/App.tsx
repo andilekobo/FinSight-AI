@@ -1,6 +1,12 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
+import {
+  ForgotPasswordPage,
+  PasswordRecoveryProvider,
+  ResetPasswordPage,
+  VerificationCodePage,
+} from "./pages/PasswordRecoveryPage";
 
 const AssistantPage = lazy(() => import("./pages/AssistantPage").then((module) => ({ default: module.AssistantPage })));
 const AuthPage = lazy(() => import("./pages/AuthPage").then((module) => ({ default: module.AuthPage })));
@@ -14,23 +20,28 @@ const UsagePage = lazy(() => import("./pages/UsagePage").then((module) => ({ def
 
 export default function App() {
   return (
-    <Suspense fallback={<div className="page-loading"><span />Loading FinSight AI...</div>}>
-      <Routes>
-        <Route path="/login" element={<AuthPage />} />
-        <Route path="/register" element={<AuthPage />} />
-        <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/login" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/usage" element={<UsagePage />} />
-          <Route path="/billing" element={<BillingPage />} />
-          <Route path="/financial" element={<FinancialPage />} />
-          <Route path="/transactions" element={<TransactionsPage />} />
-          <Route path="/ai-insights" element={<InsightsPage />} />
-          <Route path="/ai-assistant" element={<AssistantPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    </Suspense>
+    <PasswordRecoveryProvider>
+      <Suspense fallback={<div className="page-loading"><span />Loading FinSight AI...</div>}>
+        <Routes>
+          <Route path="/login" element={<AuthPage />} />
+          <Route path="/register" element={<AuthPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/verification-code" element={<VerificationCodePage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route element={<AppLayout />}>
+            <Route index element={<Navigate to="/login" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/usage" element={<UsagePage />} />
+            <Route path="/billing" element={<BillingPage />} />
+            <Route path="/financial" element={<FinancialPage />} />
+            <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/ai-insights" element={<InsightsPage />} />
+            <Route path="/ai-assistant" element={<AssistantPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </Suspense>
+    </PasswordRecoveryProvider>
   );
 }
