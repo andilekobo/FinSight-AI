@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, Building2, RefreshCw, Wallet } from "lucide-react";
 import { Currency, MetricCard, PageHeading, Panel } from "../components/ui/Primitives";
+import { formatCurrency } from "../utils/currency";
 import {
   getAccounts,
   getCurrentUserId,
@@ -57,12 +58,32 @@ export function FinancialPage() {
     };
   }, [refreshKey]);
 
-  const amount = (value: number | string | undefined) => Number(value ?? 0);
+  const formatAmount = (value: number | string | undefined) => {
+    if (value === undefined || (typeof value === "string" && !value.trim())) {
+      return "Unavailable";
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed)
+      ? new Intl.NumberFormat("en-ZA").format(parsed)
+      : "Unavailable";
+  };
+  const currencies = new Set(accounts.map((account) => account.currency));
   const totalBalance = accounts.reduce(
-    (total, account) => total + amount(account.balance),
+    (total, account) => total + Number(account.balance),
     0,
   );
-  const currency = accounts[0]?.currency ?? "ZAR";
+  const balanceSummary =
+    accounts.length === 0
+      ? "No accounts"
+      : currencies.size === 1
+        ? formatCurrency(totalBalance, accounts[0].currency)
+        : "Balances in multiple currencies";
+  const currencyLabel =
+    accounts.length === 0
+      ? "No account records"
+      : currencies.size === 1
+        ? accounts[0].currency || "Currency unavailable"
+        : `${currencies.size} currencies`;
 
   return (
     <>
@@ -104,10 +125,10 @@ export function FinancialPage() {
                 <Wallet size={14} /> Total account balance
               </span>
               <div className="account-balance">
-                <Currency value={totalBalance} />
+                {balanceSummary}
               </div>
               <span className="account-meta">
-                {currency} · {accounts.length} account{accounts.length === 1 ? "" : "s"}
+                  {currencyLabel} · {accounts.length} account{accounts.length === 1 ? "" : "s"}
               </span>
             </div>
             <div className="account-available">
@@ -125,22 +146,22 @@ export function FinancialPage() {
           <div className="metric-grid metric-grid-three">
             <MetricCard
               label="Total income"
-              value={<Currency value={amount(summary?.total_income)} />}
-              detail="From available transactions"
+              value={summary ? formatAmount(summary.total_income) : "Unavailable"}
+              detail="Currency not supplied by summary"
               icon={<ArrowDownLeft size={18} />}
               tone="green"
             />
             <MetricCard
               label="Total expenses"
-              value={<Currency value={amount(summary?.total_expenses)} />}
-              detail="From available transactions"
+              value={summary ? formatAmount(summary.total_expenses) : "Unavailable"}
+              detail="Currency not supplied by summary"
               icon={<ArrowUpRight size={18} />}
               tone="amber"
             />
             <MetricCard
               label="Net cash flow"
-              value={<Currency value={amount(summary?.net_cash_flow)} />}
-              detail={`${summary?.transaction_count ?? 0} transactions counted`}
+              value={summary ? formatAmount(summary.net_cash_flow) : "Unavailable"}
+              detail={`Currency not supplied · ${summary?.transaction_count ?? 0} transactions counted`}
               icon={<Wallet size={18} />}
               tone="blue"
             />
@@ -174,7 +195,7 @@ export function FinancialPage() {
                         <td>{account.account_type}</td>
                         <td>{account.currency}</td>
                         <td className="table-amount">
-                          <Currency value={amount(account.balance)} />
+                          <Currency value={Number(account.balance)} currency={account.currency} />
                         </td>
                       </tr>
                     ))}

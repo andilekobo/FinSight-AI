@@ -12,6 +12,7 @@ import {
   getTransactions,
   type Transaction,
 } from "../data/api";
+import { formatCurrency } from "../utils/currency";
 
 export function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -109,17 +110,8 @@ export function TransactionsPage() {
     if (value === undefined || (typeof value === "string" && !value.trim())) return "—";
     const amount = Number(value);
     if (!Number.isFinite(amount) || !currency || !/^[A-Z]{3}$/.test(currency)) return "—";
-    try {
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(amount);
-    } catch (err) {
-      if (err instanceof RangeError) return "—";
-      throw err;
-    }
+    const formatted = formatCurrency(amount, currency);
+    return formatted.startsWith("Unavailable") ? "—" : formatted;
   };
 
   const metricValue = (value: number) =>

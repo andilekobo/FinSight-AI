@@ -25,6 +25,10 @@ class User(Base):
         nullable=False,
     )
 
+    tenant_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,

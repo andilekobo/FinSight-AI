@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { DashboardWidgets } from "../components/dashboard/DashboardWidgets";
 import { PageHeading } from "../components/ui/Primitives";
@@ -170,6 +170,49 @@ export function DashboardPage() {
   const [errors, setErrors] = useState<DashboardErrors>({});
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const exportInProgress = useRef(false);
+
+  async function handleExportReport() {
+    if (exportInProgress.current || loading) return;
+    exportInProgress.current = true;
+    setExporting(true);
+    setExportError("");
+
+    try {
+      const { createFinancialReport } = await import(
+        "../utils/financialReport"
+      );
+      const report = createFinancialReport({
+        accounts: data.accounts,
+        summary: data.summary,
+        transactions: data.transactions,
+        insights: data.insights,
+        cashFlow: data.cashFlow,
+      });
+      const downloadUrl = URL.createObjectURL(report.blob);
+      let downloadStarted = false;
+      try {
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.download = report.filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+        downloadStarted = true;
+      } finally {
+        if (!downloadStarted) URL.revokeObjectURL(downloadUrl);
+      }
+    } catch (error) {
+      console.error("Could not generate the financial report.", error);
+      setExportError("Could not generate the report. Please try again.");
+    } finally {
+      exportInProgress.current = false;
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -310,12 +353,21 @@ export function DashboardPage() {
         title="Overview"
         description="Your financial position and recent activity, based on your recorded data."
         action={
-          <button
-            className="button button-secondary"
-            onClick={() => window.print()}
-          >
-            <Download size={15} /> Export report
-          </button>
+          <div className="export-report-action">
+            <button
+              className="button button-secondary"
+              onClick={() => void handleExportReport()}
+              disabled={loading || exporting}
+              aria-busy={exporting}
+            >
+              <Download size={15} /> {exporting ? "Preparing report…" : "Export report"}
+            </button>
+            {exportError && (
+              <span className="export-report-error" role="alert">
+                {exportError}
+              </span>
+            )}
+          </div>
         }
       />
 

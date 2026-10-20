@@ -3,18 +3,17 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   ArrowRight,
-  ArrowUpRight,
   Check,
   Eye,
   EyeOff,
   LockKeyhole,
   Mail,
   Sparkles,
-  TrendingUp,
   WalletCards,
 } from "lucide-react";
+import { saveCurrentUserProfile } from "../data/userProfile";
 
-type Feedback = { kind: "info" | "error"; message: string } | null;
+type Feedback = { kind: "error"; message: string } | null;
 
 export function AuthPage() {
   const location = useLocation();
@@ -91,6 +90,7 @@ export function AuthPage() {
       }
 
       localStorage.setItem("finsight_access_token", result.access_token);
+      saveCurrentUserProfile(result, result.access_token, email);
       navigate("/dashboard", { replace: true });
     } catch {
       setFeedback({
@@ -100,13 +100,6 @@ export function AuthPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function showRecoveryMessage() {
-    setFeedback({
-      kind: "info",
-      message: "Password recovery is not enabled in this preview.",
-    });
   }
 
   return (
@@ -128,26 +121,14 @@ export function AuthPage() {
 
           <div className="auth-preview" aria-hidden="true">
             <div className="auth-preview-top">
-              <div className="auth-preview-label"><span className="auth-preview-icon"><WalletCards size={15} /></span><span>Net worth</span></div>
-              <span className="auth-preview-period">This year <ArrowUpRight size={12} /></span>
+              <div className="auth-preview-label"><span className="auth-preview-icon"><WalletCards size={15} /></span><span>Financial overview</span></div>
+              <span className="auth-preview-period">Your data</span>
             </div>
-            <div className="auth-preview-value">$248,560<span>.40</span></div>
-            <div className="auth-preview-growth"><TrendingUp size={12} /> 12.8% <span>vs. last month</span></div>
-            <div className="auth-chart">
-              <div className="auth-chart-grid"><i /><i /><i /></div>
-              <svg viewBox="0 0 520 92" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="auth-chart-fill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#62e2ad" stopOpacity=".25" />
-                    <stop offset="100%" stopColor="#62e2ad" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <path className="auth-chart-area" d="M0,74 C26,70 34,53 62,60 S100,72 126,48 S164,54 190,40 S226,51 254,32 S294,45 324,28 S358,42 387,21 S430,37 458,15 S493,25 520,5 V92 H0Z" />
-                <path className="auth-chart-line" d="M0,74 C26,70 34,53 62,60 S100,72 126,48 S164,54 190,40 S226,51 254,32 S294,45 324,28 S358,42 387,21 S430,37 458,15 S493,25 520,5" />
-              </svg>
-              <div className="auth-chart-months"><span>JAN</span><span>MAR</span><span>MAY</span><span>JUL</span><span>SEP</span><span>NOV</span></div>
+            <div className="auth-preview-empty">
+              <span className="auth-preview-empty-icon"><WalletCards size={17} /></span>
+              <strong>Connect your financial data</strong>
+              <span>Your account information will appear here once connected.</span>
             </div>
-            <div className="auth-preview-note"><span><i /> Your financial picture is looking healthy</span><ArrowRight size={14} /></div>
           </div>
 
           <div className="auth-trust-row">
@@ -243,7 +224,7 @@ export function AuthPage() {
                   <span className="auth-checkbox"><Check size={12} /></span>
                   Remember me
                 </label>
-                <button className="auth-text-button" type="button" onClick={showRecoveryMessage}>Forgot password?</button>
+                <Link className="auth-text-button" to="/forgot-password">Forgot password?</Link>
               </div>
             )}
 

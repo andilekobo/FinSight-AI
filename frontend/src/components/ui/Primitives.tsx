@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { ArrowDownRight, ArrowUpRight, MoreHorizontal } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Database, MoreHorizontal } from "lucide-react";
+import { formatCurrency } from "../../utils/currency";
 
 export function PageHeading({
   eyebrow,
@@ -87,19 +88,24 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`status-badge status-${normalized}`}><i />{status}</span>;
 }
 
+export function IntegrationEmptyState({ message }: { message: string }) {
+  return (
+    <div className="integration-empty-state" role="status">
+      <span className="integration-empty-icon"><Database size={19} /></span>
+      <strong>Available after backend integration</strong>
+      <p>{message}</p>
+    </div>
+  );
+}
+
 export function Currency({
   value,
   compact = false,
-  currency = "USD",
+  currency,
 }: {
   value: number;
   compact?: boolean;
-  currency?: string;
+  currency: string;
 }) {
-  return <>{new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: compact ? 0 : 2,
-    minimumFractionDigits: compact ? 0 : 2,
-  }).format(value)}</>;
+  return <>{formatCurrency(value, currency, compact)}</>;
 }

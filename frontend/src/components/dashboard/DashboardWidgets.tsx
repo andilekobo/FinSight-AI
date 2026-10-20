@@ -17,6 +17,7 @@ import type {
   Transaction,
 } from "../../data/api";
 import type { Forecast } from "../../types";
+import { formatCurrency } from "../../utils/currency";
 import { CashFlowChart } from "../charts/Charts";
 import { MetricCard, Panel } from "../ui/Primitives";
 
@@ -38,21 +39,6 @@ function numericValue(value: number | string): number | null {
 function formatAmount(value: number | string): string {
   const parsed = numericValue(value);
   return parsed === null ? "Unavailable" : new Intl.NumberFormat("en-ZA").format(parsed);
-}
-
-function formatCurrency(value: number | string, currency: string): string {
-  const parsed = numericValue(value);
-  if (parsed === null || !/^[A-Z]{3}$/.test(currency)) return "Unavailable";
-
-  try {
-    return new Intl.NumberFormat("en-ZA", {
-      style: "currency",
-      currency,
-    }).format(parsed);
-  } catch (error) {
-    if (error instanceof RangeError) return "Unavailable (invalid currency)";
-    throw error;
-  }
 }
 
 function dateLabel(value: string | undefined): string {
@@ -124,21 +110,21 @@ export function DashboardWidgets({
         <MetricCard
           label="Total income"
           value={summary ? formatAmount(summary.total_income) : loading ? "Loading…" : "Unavailable"}
-          detail={summary ? `${summary.transaction_count} recorded transactions` : "From financial records"}
+          detail={summary ? `Currency not supplied · ${summary.transaction_count} recorded transactions` : "From financial records"}
           icon={<ArrowDownLeft size={18} />}
           tone="green"
         />
         <MetricCard
           label="Total expenses"
           value={summary ? formatAmount(summary.total_expenses) : loading ? "Loading…" : "Unavailable"}
-          detail="Recorded expenses"
+          detail="Currency not supplied by summary"
           icon={<Coins size={18} />}
           tone="violet"
         />
         <MetricCard
           label="Net cash flow"
           value={summary ? formatAmount(summary.net_cash_flow) : loading ? "Loading…" : "Unavailable"}
-          detail="Income less expenses and fees"
+          detail="Currency not supplied by summary"
           icon={<CircleDollarSign size={18} />}
           tone="blue"
         />

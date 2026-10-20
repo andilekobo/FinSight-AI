@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   ArrowDownLeft,
@@ -9,13 +9,17 @@ import {
   CircleHelp,
   CreditCard,
   LayoutDashboard,
+  LogOut,
   Menu,
-  Search,
   Settings,
   Sparkles,
+  UserRound,
   WalletCards,
   X,
 } from "lucide-react";
+import { GlobalSearch } from "./GlobalSearch";
+import { USER_PROFILE_KEY, getCurrentUserProfile } from "../../data/userProfile";
+import { applyPreferences, getPreferences } from "../../data/preferences";
 
 const navigation = [
   { label: "Overview", path: "/dashboard", icon: LayoutDashboard },
@@ -41,7 +45,45 @@ const pageNames: Record<string, string> = {
 
 export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const profileRef = useRef<HTMLDivElement>(null);
+  const profile = getCurrentUserProfile();
+  const profileName = profile.name || "My Account";
+  const profileInitials = profile.name
+    ? profile.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()
+    : profile.email?.[0]?.toUpperCase() ?? null;
+
+  useEffect(() => {
+    applyPreferences(getPreferences());
+  }, []);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    function handlePointerDown(event: PointerEvent) {
+      if (!profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
+    }
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") setProfileOpen(false);
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [profileOpen]);
+
+  if (!localStorage.getItem("finsight_access_token")) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("finsight_access_token");
+    localStorage.removeItem(USER_PROFILE_KEY);
+    navigate("/login", { replace: true });
+  }
 
   return (
     <div className="app-shell">
@@ -73,6 +115,10 @@ export function AppLayout() {
               {label === "AI Insights" && <span className="nav-new">NEW</span>}
             </NavLink>
           ))}
+          <button className="sidebar-logout" type="button" title="Logout" aria-label="Logout" onClick={handleLogout}>
+            <span className="sidebar-logout-icon" aria-hidden="true"><LogOut size={14} /></span>
+            <span>Logout</span>
+          </button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -83,8 +129,8 @@ export function AppLayout() {
             <span className="connect-pill">Connect</span>
           </div>
           <div className="sidebar-profile">
-            <div className="profile-avatar">JD</div>
-            <div className="profile-copy"><strong>Jordan Davis</strong><span>Admin</span></div>
+            <div className="profile-avatar">{profileInitials ?? <UserRound size={15} aria-hidden="true" />}</div>
+            <div className="profile-copy"><strong>{profileName}</strong><span>{profile.email || "Signed in"}</span></div>
             <button className="profile-more icon-button" aria-label="Profile menu"><ChevronDown size={16} /></button>
           </div>
         </div>
@@ -95,8 +141,30 @@ export function AppLayout() {
           <button className="mobile-menu icon-button" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={21} /></button>
           <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><strong>{pageNames[location.pathname] ?? "Overview"}</strong></div>
           <div className="topbar-actions">
-            <button className="topbar-search"><Search size={16} /><span>Search anything...</span><kbd>⌘ K</kbd></button>
-            <button className="avatar-button" aria-label="Jordan Davis account">JD</button>
+            <GlobalSearch destinations={navigation} />
+            <div className="profile-menu" ref={profileRef}>
+              <button
+                className="avatar-button"
+                type="button"
+                aria-label={`Account: ${profileName}`}
+                aria-haspopup="dialog"
+                aria-expanded={profileOpen}
+                onClick={() => setProfileOpen((open) => !open)}
+              >
+                {profileInitials ?? <UserRound size={16} aria-hidden="true" />}
+              </button>
+              {profileOpen && (
+                <section className="profile-dropdown" role="dialog" aria-label="Account details">
+                  <div className="profile-dropdown-heading">
+                    <span className="profile-dropdown-avatar">{profileInitials ?? <UserRound size={16} aria-hidden="true" />}</span>
+                    <span><strong>{profileName}</strong><small>{profile.email || "Account details unavailable"}</small></span>
+                  </div>
+                  <button className="profile-dropdown-logout" type="button" onClick={handleLogout}>
+                    <LogOut size={15} /> Logout
+                  </button>
+                </section>
+              )}
+            </div>
           </div>
         </header>
         <div className="page-content"><Outlet /></div>

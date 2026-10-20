@@ -140,3 +140,91 @@ export const postAIChat = (message: string) =>
 
 export const getSavedInsights = () =>
   request<SavedInsightsResponse>("/ai/insights");
+
+
+export interface UsageResponse {
+  tenant_id: string;
+  billing_period: { start: string; end: string };
+  subscription: {
+    status: string;
+    plan: {
+      id: string;
+      name: string;
+      api_call_limit: number;
+      token_limit: number;
+    };
+  };
+  usage: {
+    api_calls: number;
+    api_call_limit: number;
+    token_limit: number;
+    tokens: {
+      input_tokens: number;
+      cached_input_tokens: number;
+      reasoning_tokens: number;
+      output_tokens: number;
+      total_billable_tokens: number;
+    };
+  };
+  cost: {
+    api_call_cost_cents: number;
+    input_cost_cents: number;
+    cached_input_cost_cents: number;
+    output_cost_cents: number;
+    total_cost_cents: number;
+  };
+  metering_note?: string;
+}
+
+export interface BillingResponse {
+  tenant_id: string;
+  subscription: {
+    status: string;
+    plan: {
+      id: string;
+      name: string;
+      api_call_limit: number;
+      token_limit: number;
+    };
+  };
+  payment_provider: string;
+  checkout_is_simulated: boolean;
+  message: string;
+}
+
+export const getUsage = () => request<UsageResponse>("/usage/me");
+export const getBilling = () => request<BillingResponse>("/billing/me");
+
+export interface InvestecSandboxAccount {
+  accountId: string;
+  accountNumber: string;
+  accountName: string;
+  referenceName: string;
+  productName: string;
+  kycCompliant: boolean;
+  profileId: string;
+  profileName: string;
+}
+
+export interface InvestecAccountsResponse {
+  source: string;
+  simulated_data: boolean;
+  accounts: InvestecSandboxAccount[];
+}
+
+export interface InvestecSyncResponse {
+  source: string;
+  simulated_data: boolean;
+  accounts_synced: number;
+  transactions_imported: number;
+  transactions_skipped: number;
+  message: string;
+}
+
+export const getInvestecSandboxAccounts = () =>
+  request<InvestecAccountsResponse>("/investec/accounts");
+
+export const syncInvestecSandbox = () =>
+  request<InvestecSyncResponse>("/investec/sync", {
+    method: "POST",
+  });
