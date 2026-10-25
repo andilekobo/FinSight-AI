@@ -8,7 +8,32 @@ import {
   getFinancialSummary,
   type Account,
   type FinancialSummary,
+  type FinancialTransactionType,
 } from "../data/api";
+
+function formatSummaryTotals(
+  summary: FinancialSummary | null,
+  type: FinancialTransactionType,
+): string {
+  if (!summary) return "Unavailable";
+  const amounts = Object.entries(summary.summary).map(([currency, totals]) =>
+    `${currency} ${formatCurrency(totals[type].total, currency)}`,
+  );
+  return amounts.length ? amounts.join(" · ") : "No totals";
+}
+
+function formatSummaryNetCashFlow(summary: FinancialSummary | null): string {
+  if (!summary) return "Unavailable";
+  const amounts = Object.entries(summary.summary).map(([currency, totals]) => {
+    const income = Number(totals.income.total);
+    const expenses = Number(totals.expense.total);
+    const fees = Number(totals.fee.total);
+    return Number.isFinite(income) && Number.isFinite(expenses) && Number.isFinite(fees)
+      ? `${currency} ${formatCurrency(income - expenses - fees, currency)}`
+      : `${currency} Unavailable`;
+  });
+  return amounts.length ? amounts.join(" · ") : "No totals";
+}
 
 export function FinancialPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -58,15 +83,6 @@ export function FinancialPage() {
     };
   }, [refreshKey]);
 
-  const formatAmount = (value: number | string | undefined) => {
-    if (value === undefined || (typeof value === "string" && !value.trim())) {
-      return "Unavailable";
-    }
-    const parsed = Number(value);
-    return Number.isFinite(parsed)
-      ? new Intl.NumberFormat("en-ZA").format(parsed)
-      : "Unavailable";
-  };
   const currencies = new Set(accounts.map((account) => account.currency));
   const totalBalance = accounts.reduce(
     (total, account) => total + Number(account.balance),
@@ -146,26 +162,81 @@ export function FinancialPage() {
           <div className="metric-grid metric-grid-three">
             <MetricCard
               label="Total income"
-              value={summary ? formatAmount(summary.total_income) : "Unavailable"}
-              detail="Currency not supplied by summary"
+              value={formatSummaryTotals(summary, "income")}
+              detail="Totals shown separately by currency"
               icon={<ArrowDownLeft size={18} />}
               tone="green"
             />
             <MetricCard
               label="Total expenses"
-              value={summary ? formatAmount(summary.total_expenses) : "Unavailable"}
-              detail="Currency not supplied by summary"
+              value={formatSummaryTotals(summary, "expense")}
+              detail="Totals shown separately by currency"
               icon={<ArrowUpRight size={18} />}
               tone="amber"
             />
             <MetricCard
               label="Net cash flow"
-              value={summary ? formatAmount(summary.net_cash_flow) : "Unavailable"}
-              detail={`Currency not supplied · ${summary?.transaction_count ?? 0} transactions counted`}
+              value={formatSummaryNetCashFlow(summary)}
+              detail="Income less expenses and fees"
               icon={<Wallet size={18} />}
               tone="blue"
             />
           </div>
+
+          <Panel
+            title="Financial totals by currency"
+            subtitle="Backend totals remain grouped by currency"
+            className="table-panel"
+          >
+            {summary && Object.keys(summary.summary).length > 0 ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>CURRENCY</th>
+                      <th>INCOME</th>
+                      <th>EXPENSES</th>
+                      <th>FEES</th>
+                      <th>NET CASH FLOW</th>
+                      <th>TRANSACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(summary.summary).map(([currency, totals]) => {
+                      const income = Number(totals.income.total);
+                      const expenses = Number(totals.expense.total);
+                      const fees = Number(totals.fee.total);
+                      const netCashFlow =
+                        Number.isFinite(income) &&
+                        Number.isFinite(expenses) &&
+                        Number.isFinite(fees)
+                          ? income - expenses - fees
+                          : null;
+                      const transactionCount =
+                        totals.income.count + totals.expense.count + totals.fee.count;
+
+                      return (
+                        <tr key={currency}>
+                          <td><strong>{currency}</strong></td>
+                          <td className="table-amount">{formatCurrency(totals.income.total, currency)}</td>
+                          <td className="table-amount">{formatCurrency(totals.expense.total, currency)}</td>
+                          <td className="table-amount">{formatCurrency(totals.fee.total, currency)}</td>
+                          <td className="table-amount">
+                            {netCashFlow === null
+                              ? "Unavailable"
+                              : formatCurrency(netCashFlow, currency)}
+                          </td>
+                          <td>{transactionCount}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state">No financial totals were returned.</div>
+            )}
+          </Panel>
 
           <Panel
             title="Your accounts"
@@ -205,22 +276,6 @@ export function FinancialPage() {
             )}
           </Panel>
 
-          <Panel
-            title="Cash flow reporting"
-            subtitle="Based on transactions available to the API"
-          >
-            <p>
-              {summary?.period?.start_date && summary?.period?.end_date
-                ? `Reporting period: ${summary.period.start_date} to ${summary.period.end_date}.`
-                : "The backend has not supplied a reporting date range."}
-            </p>
-            {(summary?.transaction_count ?? 0) === 0 && (
-              <div className="empty-state">
-                No transactions are included in this summary yet. No sample
-                financial records have been added.
-              </div>
-            )}
-          </Panel>
         </>
       )}
     </>

@@ -13,6 +13,7 @@ const AuthPage = lazy(() => import("./pages/AuthPage").then((module) => ({ defau
 const BillingPage = lazy(() => import("./pages/BillingPage").then((module) => ({ default: module.BillingPage })));
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
 const FinancialPage = lazy(() => import("./pages/FinancialPage").then((module) => ({ default: module.FinancialPage })));
+const HelpSupportPage = lazy(() => import("./pages/HelpSupportPage").then((module) => ({ default: module.HelpSupportPage })));
 const InsightsPage = lazy(() => import("./pages/InsightsPage").then((module) => ({ default: module.InsightsPage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const TransactionsPage = lazy(() => import("./pages/TransactionsPage").then((module) => ({ default: module.TransactionsPage })));
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/ai-insights" element={<InsightsPage />} />
             <Route path="/ai-assistant" element={<AssistantPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/help-support" element={<HelpSupportPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

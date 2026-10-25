@@ -1,30 +1,44 @@
-from datetime import datetime
+﻿from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_current_user
 from app.db.database import get_db
 from app.models.plan import Plan
 from app.models.subscription import Subscription
 from app.models.usage_event import UsageEvent
+from app.models.user import User
 from app.schemas.generate import GenerateRequest
 from app.services.meter_service import calculate_usage
 from app.services.quota_service import check_quota
+from app.services.tenant_service import ensure_billing_for_user
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.post("/generate")
 def generate(
     request: GenerateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    # Check whether this idempotency key was already processed
+    # Resolve the authenticated user's tenant before accessing usage events.
+    tenant = ensure_billing_for_user(db, current_user)
+
+    if str(request.tenant_id) != str(tenant.id):
+        raise HTTPException(
+            status_code=403,
+            detail="Access to this tenant is forbidden",
+        )
+
+    # Idempotency keys are scoped to the verified tenant.
     existing_event = db.scalar(
         select(UsageEvent).where(
-            UsageEvent.idempotency_key == request.idempotency_key
+            UsageEvent.tenant_id == tenant.id,
+            UsageEvent.idempotency_key == request.idempotency_key,
         )
     )
 
@@ -46,7 +60,6 @@ def generate(
             "idempotent_replay": True,
         }
 
-    # Calculate billable usage
     usage = calculate_usage(
         input_tokens=request.input_tokens,
         cached_input_tokens=request.cached_input_tokens,
@@ -54,10 +67,9 @@ def generate(
         output_tokens=request.output_tokens,
     )
 
-    # Get the tenant's subscription
     subscription = db.scalar(
         select(Subscription).where(
-            Subscription.tenant_id == request.tenant_id
+            Subscription.tenant_id == tenant.id
         )
     )
 
@@ -67,11 +79,8 @@ def generate(
             detail="Tenant subscription not found",
         )
 
-    # Get the plan attached to the subscription
     plan = db.scalar(
-        select(Plan).where(
-            Plan.id == subscription.plan_id
-        )
+        select(Plan).where(Plan.id == subscription.plan_id)
     )
 
     if not plan:
@@ -80,18 +89,18 @@ def generate(
             detail="Tenant plan not found",
         )
 
-    # Calculate usage for the current month
     now = datetime.utcnow()
     month_start = datetime(now.year, now.month, 1)
 
-    if now.month == 12:
-        next_month = datetime(now.year + 1, 1, 1)
-    else:
-        next_month = datetime(now.year, now.month + 1, 1)
+    next_month = (
+        datetime(now.year + 1, 1, 1)
+        if now.month == 12
+        else datetime(now.year, now.month + 1, 1)
+    )
 
     api_calls_used = db.scalar(
         select(func.count(UsageEvent.id)).where(
-            UsageEvent.tenant_id == request.tenant_id,
+            UsageEvent.tenant_id == tenant.id,
             UsageEvent.created_at >= month_start,
             UsageEvent.created_at < next_month,
         )
@@ -104,13 +113,12 @@ def generate(
                 0,
             )
         ).where(
-            UsageEvent.tenant_id == request.tenant_id,
+            UsageEvent.tenant_id == tenant.id,
             UsageEvent.created_at >= month_start,
             UsageEvent.created_at < next_month,
         )
     ) or 0
 
-    # Check quota using the tenant's actual plan limits
     quota = check_quota(
         api_calls_used=api_calls_used,
         tokens_used=tokens_used,
@@ -125,9 +133,8 @@ def generate(
             detail=quota["reason"],
         )
 
-    # Create usage event
     event = UsageEvent(
-        tenant_id=request.tenant_id,
+        tenant_id=tenant.id,
         idempotency_key=request.idempotency_key,
         input_tokens=request.input_tokens,
         cached_input_tokens=request.cached_input_tokens,
@@ -143,17 +150,20 @@ def generate(
         db.refresh(event)
 
     except IntegrityError:
-        # Another request may have created the same idempotency key
         db.rollback()
 
         existing_event = db.scalar(
             select(UsageEvent).where(
-                UsageEvent.idempotency_key == request.idempotency_key
+                UsageEvent.tenant_id == tenant.id,
+                UsageEvent.idempotency_key == request.idempotency_key,
             )
         )
 
-        if not existing_event:
-            raise
+        if existing_event is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Idempotency key conflict; retry the request",
+            )
 
         usage = {
             "input_tokens": existing_event.input_tokens,
@@ -175,7 +185,7 @@ def generate(
     return {
         "success": True,
         "message": "Generation completed",
-        "tenant_id": request.tenant_id,
+        "tenant_id": tenant.id,
         "usage": usage,
         "plan": {
             "id": plan.id,

@@ -2,9 +2,9 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatCurrency } from "./currency";
 import type {
+  AIInsightsResponse,
   Account,
   FinancialSummary,
-  SavedInsight,
   Transaction,
 } from "../data/api";
 import type { Forecast } from "../types";
@@ -13,8 +13,9 @@ type FinancialReportData = {
   accounts: Account[] | null;
   summary: FinancialSummary | null;
   transactions: Transaction[] | null;
-  insights: SavedInsight[] | null;
+  insights: AIInsightsResponse | null;
   cashFlow: Forecast[] | null;
+  cashFlowCurrency: string | null;
 };
 
 const green: [number, number, number] = [17, 151, 106];
@@ -137,7 +138,6 @@ export function createFinancialReport(
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const contentWidth = pageWidth - 84;
 
   doc.setFillColor(...green);
   doc.rect(0, 0, pageWidth, 105, "F");
@@ -167,49 +167,54 @@ export function createFinancialReport(
     "Financial overview",
     y,
     data.summary
-      ? `Reporting period: ${formatDate(data.summary.period.start_date)} to ${formatDate(data.summary.period.end_date)}`
+      ? `Reporting period: ${formatDate(data.summary.start_date)} to ${formatDate(data.summary.end_date)}`
       : "Financial summary is unavailable.",
   );
 
-  if (data.summary) {
-    const metrics = [
-      ["Total income", data.summary.total_income],
-      ["Total expenses", data.summary.total_expenses],
-      ["Total fees", data.summary.total_fees],
-      ["Net cash flow", data.summary.net_cash_flow],
-    ];
-    const gap = 10;
-    const cardWidth = (contentWidth - gap) / 2;
-    const cardHeight = 52;
-    metrics.forEach(([label, value], index) => {
-      const col = index % 2;
-      const row = Math.floor(index / 2);
-      const x = 42 + col * (cardWidth + gap);
-      const cardY = y + row * (cardHeight + 8);
-      doc.setFillColor(247, 250, 247);
-      doc.setDrawColor(230, 237, 232);
-      doc.roundedRect(x, cardY, cardWidth, cardHeight, 6, 6, "FD");
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(...muted);
-      doc.text(String(label), x + 12, cardY + 18);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.setTextColor(...ink);
-      doc.text(formatAmount(value as string), x + 12, cardY + 39);
-    });
-    y += cardHeight * 2 + 25;
+  const summaryCurrencies = data.summary
+    ? Object.entries(data.summary.summary)
+    : [];
+  if (summaryCurrencies.length) {
+    y = addTable(
+      doc,
+      y,
+      ["Currency", "Income", "Expenses", "Fees", "Net cash flow", "Transactions"],
+      summaryCurrencies.map(([currency, totals]) => {
+        const income = Number(totals.income.total);
+        const expenses = Number(totals.expense.total);
+        const fees = Number(totals.fee.total);
+        const netCashFlow =
+          Number.isFinite(income) &&
+          Number.isFinite(expenses) &&
+          Number.isFinite(fees)
+            ? formatAmount(income - expenses - fees, currency)
+            : "Unavailable";
+        return [
+          currency,
+          formatAmount(totals.income.total, currency),
+          formatAmount(totals.expense.total, currency),
+          formatAmount(totals.fee.total, currency),
+          netCashFlow,
+          totals.income.count + totals.expense.count + totals.fee.count,
+        ];
+      }),
+    );
+    const transactionCount = summaryCurrencies.reduce(
+      (count, [, totals]) =>
+        count + totals.income.count + totals.expense.count + totals.fee.count,
+      0,
+    );
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...muted);
-    doc.text(
-      `Recorded transactions: ${data.summary.transaction_count}. Currency is not supplied for these summary totals.`,
-      42,
+    doc.text(`Recorded transactions: ${transactionCount}.`, 42, y);
+    y += 16;
+  } else {
+    y = addUnavailable(
+      doc,
+      "No financial summary totals were returned.",
       y,
     );
-    y += 22;
-  } else {
-    y = addUnavailable(doc, "Financial summary totals are unavailable.", y);
   }
 
   y = ensureSpace(doc, y, 50);
@@ -235,17 +240,24 @@ export function createFinancialReport(
     doc,
     "Monthly cash flow",
     y,
-    "Amounts are shown as returned; the financial summary does not provide a currency code.",
+    data.cashFlowCurrency
+      ? `Monthly totals in ${data.cashFlowCurrency}.`
+      : "A monthly chart is available only when its periods use one currency.",
   );
   if (data.cashFlow?.length) {
     y = addTable(
       doc,
       y,
-      ["Month", "Income", "Expenses"],
+      ["Month", "Currency", "Income", "Expenses"],
       data.cashFlow.map((period) => [
         period.month,
-        period.income === undefined ? "Unavailable" : formatAmount(period.income),
-        period.expenses === undefined ? "Unavailable" : formatAmount(period.expenses),
+        data.cashFlowCurrency ?? "Unavailable",
+        period.income === undefined
+          ? "Unavailable"
+          : formatAmount(period.income, data.cashFlowCurrency ?? undefined),
+        period.expenses === undefined
+          ? "Unavailable"
+          : formatAmount(period.expenses, data.cashFlowCurrency ?? undefined),
       ]),
     );
   } else {
@@ -316,33 +328,25 @@ export function createFinancialReport(
     );
   }
 
-  if (data.insights?.length) {
+  if (data.insights) {
     y = ensureSpace(doc, y, 50);
-    y = drawSectionTitle(doc, "Saved financial insights", y);
-    for (const insight of data.insights) {
-      const title = insight.title ?? insight.message ?? "Saved insight";
-      const description = insight.description ?? "";
-      const lines = doc.splitTextToSize(
-        `${title}${description ? ` - ${description}` : ""}`,
-        contentWidth,
-      ) as string[];
-      const entryHeight = lines.length * 12 + 10;
-      if (y + entryHeight > pageHeight - 48) {
-        doc.addPage();
-        y = 52;
-      }
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.setTextColor(...ink);
-      doc.text(lines[0], 42, y);
-      if (lines.length > 1) {
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.setTextColor(...muted);
-        doc.text(lines.slice(1), 42, y + 12);
-      }
-      y += entryHeight;
-    }
+    y = drawSectionTitle(doc, "Spending comparison", y);
+    y = addTable(
+      doc,
+      y,
+      ["Period", "Current spending", "Previous spending", "Change"],
+      [[
+        `${data.insights.period_days} days`,
+        formatAmount(data.insights.current_spending),
+        formatAmount(data.insights.previous_spending),
+        `${data.insights.change_percent > 0 ? "+" : ""}${data.insights.change_percent}%`,
+      ]],
+    );
+    y = addUnavailable(
+      doc,
+      `${data.insights.message} Currency is not supplied by the backend response.`,
+      y,
+    );
   }
 
   const pageCount = doc.getNumberOfPages();

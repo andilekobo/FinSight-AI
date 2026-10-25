@@ -1,4 +1,4 @@
-from app.services.auth_service import hash_password, verify_password
+﻿from app.services.auth_service import hash_password, verify_password
 
 
 def test_password_is_hashed_and_can_be_verified():
@@ -29,15 +29,25 @@ def test_register_endpoint():
     from sqlalchemy.pool import StaticPool
 
     from app.db.database import Base, get_db
+    import app.models
     from app.main import app
     from app.models.user import User
+    from app.models.plan import Plan
 
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    User.__table__.create(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    with sessionmaker(bind=engine)() as seed_db:
+        seed_db.add(Plan(
+            id="free",
+            name="Free",
+            api_call_limit=1000,
+            token_limit=100000,
+        ))
+        seed_db.commit()
     TestingSessionLocal = sessionmaker(bind=engine)
 
     def override_get_db():
@@ -77,5 +87,7 @@ def test_register_endpoint():
             assert duplicate.status_code == 409
     finally:
         app.dependency_overrides.pop(get_db, None)
-        Base.metadata.clear()
         engine.dispose()
+
+
+

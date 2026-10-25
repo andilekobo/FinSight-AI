@@ -41,6 +41,7 @@ const pageNames: Record<string, string> = {
   "/ai-insights": "AI Insights",
   "/ai-assistant": "AI Assistant",
   "/settings": "Settings",
+  "/help-support": "Help & Support",
 };
 
 export function AppLayout() {
@@ -122,7 +123,15 @@ export function AppLayout() {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="help-link"><CircleHelp size={17} /><span>Help & support</span><ArrowUpRight size={13} /></div>
+          <NavLink
+            className={({ isActive }) => `help-link${isActive ? " help-link-active" : ""}`}
+            to="/help-support"
+            onClick={() => setMobileOpen(false)}
+          >
+            <CircleHelp size={17} />
+            <span>Help & support</span>
+            <ArrowUpRight size={13} />
+          </NavLink>
           <div className="investec-status">
             <div className="investec-logo">i</div>
             <div className="investec-copy"><strong>Investec</strong><span><i className="status-dot" /> Not connected</span></div>

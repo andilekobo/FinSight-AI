@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import NAMESPACE_URL, uuid5
@@ -16,7 +16,8 @@ from app.models.user import User
 
 load_dotenv()
 
-router = APIRouter(prefix="/investec", tags=["Investec Sandbox"])
+from app.api.dependencies import get_current_user
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/investec", tags=["Investec Sandbox"])
 
 BASE_URL = os.getenv(
     "INVESTEC_BASE_URL",
@@ -261,3 +262,4 @@ def sync_transactions(
             "Account balances are not recalculated from historical records."
         ),
     }
+

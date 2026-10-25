@@ -11,4 +11,4 @@ from app.models.ai_insight import AIInsight
 from app.models.category import Category
 from app.models.financial_transaction import FinancialTransaction
 from app.models.password_reset_otp import PasswordResetOTP
-from app.models.password_reset_otp import PasswordResetOTP
+from app.models.password_reset_token import PasswordResetToken

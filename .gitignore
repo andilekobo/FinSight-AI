@@ -23,3 +23,14 @@ finsight.db
 # Backup files
 *.bak
 *.before-network-fix
+
+# Local diagnostic scripts and backups
+*.backup_*
+*.backup-*
+*.before-diagnostic
+*.before-history
+*.bak
+security_backup_*/
+frontend/usage_chart_backup_*/
+patch_finsight.py
+patch_usage.py

@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
-  ArrowUpRight,
   Bot,
   CircleAlert,
   Lightbulb,
@@ -13,70 +12,62 @@ import { Link } from "react-router-dom";
 import { PageHeading } from "../components/ui/Primitives";
 import {
   getCurrentUserId,
-  getSavedInsights,
-  type SavedInsight,
-  type SavedInsightsResponse,
+  getAIInsights,
+  type AIInsightsResponse,
 } from "../data/api";
 
-function isSavedInsightsResponse(value: unknown): value is SavedInsightsResponse {
+function isAIInsightsResponse(value: unknown): value is AIInsightsResponse {
   if (typeof value !== "object" || value === null) return false;
   const response = value as Record<string, unknown>;
   return (
-    typeof response.count === "number" &&
-    Number.isFinite(response.count) &&
-    Array.isArray(response.insights) &&
-    response.count === response.insights.length &&
-    response.insights.every((item: unknown) => {
-      if (typeof item !== "object" || item === null) return false;
-      const insight = item as Record<string, unknown>;
-      return (
-        typeof insight.id === "string" &&
-        (insight.title === undefined || typeof insight.title === "string") &&
-        (insight.description === undefined || typeof insight.description === "string") &&
-        (insight.insight_type === undefined || typeof insight.insight_type === "string") &&
-        (insight.severity === undefined || typeof insight.severity === "string") &&
-        (insight.created_at === undefined || typeof insight.created_at === "string")
-      );
-    })
+    typeof response.user_id === "string" &&
+    typeof response.period_days === "number" &&
+    Number.isFinite(response.period_days) &&
+    (typeof response.current_spending === "number" ||
+      (typeof response.current_spending === "string" &&
+        response.current_spending.trim() !== "" &&
+        Number.isFinite(Number(response.current_spending)))) &&
+    (typeof response.previous_spending === "number" ||
+      (typeof response.previous_spending === "string" &&
+        response.previous_spending.trim() !== "" &&
+        Number.isFinite(Number(response.previous_spending)))) &&
+    typeof response.change_percent === "number" &&
+    Number.isFinite(response.change_percent) &&
+    typeof response.message === "string"
   );
 }
 
-function insightLabel(insight: SavedInsight): string {
-  return insight.insight_type
-    ? insight.insight_type.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
-    : "Type not provided";
+function formatAmount(value: number | string): string {
+  const amount = Number(value);
+  return Number.isFinite(amount)
+    ? new Intl.NumberFormat("en-ZA", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount)
+    : "Unavailable";
 }
 
-function insightIcon(insight: SavedInsight) {
-  const type = insight.insight_type?.toLowerCase() ?? "";
-  if (type.includes("increase") || type.includes("anomaly")) return CircleAlert;
-  if (type.includes("decrease") || type.includes("trend") || type.includes("forecast")) return TrendingUp;
-  if (type.includes("unchanged")) return ArrowUpRight;
-  return Lightbulb;
+function percentageLabel(value: number): string {
+  const formatted = new Intl.NumberFormat("en-ZA", {
+    maximumFractionDigits: 2,
+  }).format(value);
+  return `${value > 0 ? "+" : ""}${formatted}%`;
 }
 
-function insightTone(insight: SavedInsight): "warning" | "neutral" | "positive" {
-  const severity = insight.severity?.toLowerCase();
-  if (severity === "warning") return "warning";
-  if (severity === "positive" || severity === "success") return "positive";
+function insightTone(change: number): "warning" | "neutral" | "positive" {
+  if (change > 10) return "warning";
+  if (change < -10) return "positive";
   return "neutral";
 }
 
-function createdDate(value: string | undefined): string {
-  if (!value) return "Date not provided";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "Date not provided"
-    : date.toLocaleDateString("en-US", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
+function insightIcon(change: number) {
+  if (change > 10) return CircleAlert;
+  if (change < -10) return TrendingUp;
+  return Lightbulb;
 }
 
 export function InsightsPage() {
-  const [insights, setInsights] = useState<SavedInsight[]>([]);
-  const [filter, setFilter] = useState("All insights");
+  const [insights, setInsights] = useState<AIInsightsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -87,7 +78,7 @@ export function InsightsPage() {
     async function loadInsights() {
       setLoading(true);
       setError(null);
-      setInsights([]);
+      setInsights(null);
 
       if (!getCurrentUserId()) {
         setError("Please sign in again to view your saved insights.");
@@ -96,11 +87,11 @@ export function InsightsPage() {
       }
 
       try {
-        const result: unknown = await getSavedInsights();
-        if (!isSavedInsightsResponse(result)) {
-          throw new Error("The API returned an unexpected saved insights response.");
+        const result: unknown = await getAIInsights();
+        if (!isAIInsightsResponse(result)) {
+          throw new Error("The API returned an unexpected spending comparison response.");
         }
-        if (active) setInsights(result.insights);
+        if (active) setInsights(result);
       } catch (err) {
         if (active) {
           setError(err instanceof Error ? err.message : "Could not load saved insights.");
@@ -115,15 +106,6 @@ export function InsightsPage() {
       active = false;
     };
   }, [refreshKey]);
-
-  const categories = useMemo(
-    () => [...new Set(insights.map((insight) => insight.insight_type).filter((type): type is string => Boolean(type)))].sort(),
-    [insights],
-  );
-  const visibleInsights = useMemo(
-    () => insights.filter((insight) => filter === "All insights" || insight.insight_type === filter),
-    [insights, filter],
-  );
 
   return (
     <>
@@ -148,36 +130,30 @@ export function InsightsPage() {
         <div className="insights-hero-copy">
           <span className="ai-label"><i className="sparkle-dot" /> FIN SIGHT INTELLIGENCE</span>
           <h2>Your business, understood.</h2>
-          <p>Insights saved for your account by the backend appear here.</p>
+          <p>Review the backend's current and previous spending comparison.</p>
         </div>
         <div className="insights-score">
-          <span>SAVED INSIGHTS</span>
-          <strong>{loading ? "—" : error ? "—" : insights.length}</strong>
-          <small>{loading ? "Loading" : error ? "Unavailable" : "returned by backend"}</small>
+          <span>SPENDING CHANGE</span>
+          <strong>{loading || error || !insights ? "—" : percentageLabel(insights.change_percent)}</strong>
+          <small>{loading ? "Loading" : error ? "Unavailable" : `over ${insights?.period_days} days`}</small>
         </div>
       </div>
       <div className="insights-toolbar">
         <div>
-          <h2>Latest insights <span>{loading || error ? "—" : visibleInsights.length}</span></h2>
-          <p>{loading ? "Loading saved insights…" : error ? "Saved insights could not be retrieved." : "Saved insights returned for your account."}</p>
+          <h2>Spending comparison</h2>
+          <p>
+            {loading
+              ? "Loading the spending comparison…"
+              : error
+                ? "The spending comparison could not be retrieved."
+                : insights?.message ?? "No spending comparison was returned."}
+          </p>
         </div>
-        <select
-          className="select-compact"
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
-          disabled={loading || Boolean(error) || insights.length === 0}
-          aria-label="Filter insights by type"
-        >
-          <option value="All insights">All insights</option>
-          {categories.map((category) => (
-            <option key={category} value={category}>{insightLabel({ id: "", insight_type: category })}</option>
-          ))}
-        </select>
       </div>
       {loading && (
         <div className="empty-state" role="status">
           <span className="insights-loading-indicator" />
-          Loading saved insights…
+          Loading the spending comparison…
         </div>
       )}
       {!loading && error && (
@@ -191,43 +167,43 @@ export function InsightsPage() {
           </button>
         </div>
       )}
-      {!loading && !error && insights.length === 0 && (
-        <div className="empty-state">No saved insights are available for this account yet.</div>
+      {!loading && !error && !insights && (
+        <div className="empty-state">No spending comparison was returned.</div>
       )}
-      {!loading && !error && insights.length > 0 && visibleInsights.length === 0 && (
-        <div className="empty-state">No saved insights match this type.</div>
-      )}
-      {!loading && !error && visibleInsights.length > 0 && (
+      {!loading && !error && insights && (
         <div className="insight-cards">
-          {visibleInsights.map((insight, index) => {
-            const Icon = insightIcon(insight);
-            const tone = insightTone(insight);
-            const label = insightLabel(insight);
+          {(() => {
+            const tone = insightTone(insights.change_percent);
+            const Icon = insightIcon(insights.change_percent);
             return (
-              <article className={`insight-card insight-${tone}`} key={insight.id}>
+              <article className={`insight-card insight-${tone}`}>
                 <div className="insight-card-top">
                   <div className="insight-card-icon insight-icon-recommendation"><Icon size={18} /></div>
-                  <span className="insight-category">{label}</span>
-                  <span className="insight-number">{String(index + 1).padStart(2, "0")}</span>
+                  <span className="insight-category">{insights.period_days}-day comparison</span>
+                  <span className="insight-number">{percentageLabel(insights.change_percent)}</span>
                 </div>
-                <h3>{insight.title || "Title not provided"}</h3>
-                <p>{insight.description || "The backend did not provide a description for this insight."}</p>
+                <h3>{insights.message}</h3>
+                <p>
+                  Current spending: {formatAmount(insights.current_spending)} ·
+                  Previous period: {formatAmount(insights.previous_spending)}.
+                  The backend response does not include a currency.
+                </p>
                 <div className="insight-card-bottom">
                   <span className={`impact-tag impact-${tone}`}>
-                    {insight.severity || createdDate(insight.created_at)}
+                    Change {percentageLabel(insights.change_percent)}
                   </span>
                   <span className="insight-arrow" aria-hidden="true"><ArrowRight size={16} /></span>
                 </div>
               </article>
             );
-          })}
+          })()}
         </div>
       )}
       <div className="insights-bottom-cta">
         <div className="cta-spark"><WandSparkles size={17} /></div>
         <div>
           <strong>Want to dig deeper?</strong>
-          <span>Ask FinSight AI to explore what your saved insights mean for your business.</span>
+          <span>Ask FinSight AI to explore your recorded financial activity.</span>
         </div>
         <Link to="/ai-assistant" className="button button-secondary">Talk to AI <ArrowRight size={14} /></Link>
       </div>

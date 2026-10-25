@@ -1,3 +1,4 @@
+﻿
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,7 +14,11 @@ from app.models.user import User
 from app.services.billing_service import calculate_total_cost
 from app.services.tenant_service import ensure_billing_for_user
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/usage",
+    tags=["Usage"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 def build_usage_response(tenant_id: str, db: Session) -> dict:
@@ -93,7 +98,7 @@ def build_usage_response(tenant_id: str, db: Session) -> dict:
     }
 
 
-@router.get("/usage/me")
+@router.get("/me")
 def get_my_usage(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -102,13 +107,99 @@ def get_my_usage(
     return build_usage_response(tenant.id, db)
 
 
-@router.get("/usage/{tenant_id}")
+
+@router.get("/history")
+def get_usage_history(
+    year: int | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return monthly costs from persisted usage events for this user's tenant."""
+    tenant = ensure_billing_for_user(db, user)
+    selected_year = year if year is not None else datetime.utcnow().year
+
+    if selected_year < 2000 or selected_year > 2100:
+        raise HTTPException(status_code=400, detail="Invalid year")
+
+    year_start = datetime(selected_year, 1, 1)
+    next_year_start = datetime(selected_year + 1, 1, 1)
+
+    events = db.scalars(
+        select(UsageEvent).where(
+            UsageEvent.tenant_id == tenant.id,
+            UsageEvent.created_at >= year_start,
+            UsageEvent.created_at < next_year_start,
+        )
+    ).all()
+
+    by_month = {month: [] for month in range(1, 13)}
+    for event in events:
+        by_month[event.created_at.month].append(event)
+
+    now = datetime.utcnow()
+    monthly = []
+
+    for month in range(1, 13):
+        month_events = by_month[month]
+
+        api_calls = len(month_events)
+        input_tokens = sum(e.input_tokens for e in month_events)
+        cached_input_tokens = sum(e.cached_input_tokens for e in month_events)
+        reasoning_tokens = sum(e.reasoning_tokens for e in month_events)
+        output_tokens = sum(e.output_tokens for e in month_events)
+
+        cost = calculate_total_cost(
+            api_calls=api_calls,
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            reasoning_tokens=reasoning_tokens,
+            output_tokens=output_tokens,
+        )
+        actual_zar = cost["total_cost_cents"] / 100
+
+        # Estimate the current month's total using its recorded daily pace.
+        projected_zar = None
+        if selected_year < now.year or (
+            selected_year == now.year and month < now.month
+        ):
+            projected_zar = actual_zar
+        elif selected_year == now.year and month == now.month:
+            import calendar
+            days_elapsed = max(now.day, 1)
+            days_in_month = calendar.monthrange(selected_year, month)[1]
+            projected_zar = round(
+                actual_zar * days_in_month / days_elapsed, 2
+            )
+
+        monthly.append({
+            "month": month,
+            "label": datetime(selected_year, month, 1).strftime("%b"),
+            "api_calls": api_calls,
+            "total_billable_tokens": sum(
+                e.total_billable_tokens for e in month_events
+            ),
+            "actual_cost_zar": round(actual_zar, 2),
+            "projected_cost_zar": projected_zar,
+        })
+
+    return {
+        "year": selected_year,
+        "currency": "ZAR",
+        "has_data": bool(events),
+        "monthly": monthly,
+    }
+@router.get("/{tenant_id}")
 def get_usage_for_tenant(
     tenant_id: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     tenant = ensure_billing_for_user(db, user)
+
     if tenant_id != tenant.id:
-        raise HTTPException(status_code=403, detail="Access to this tenant is forbidden")
+        raise HTTPException(
+            status_code=403,
+            detail="Access to this tenant is forbidden",
+        )
+
     return build_usage_response(tenant.id, db)

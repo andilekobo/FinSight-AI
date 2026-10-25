@@ -6,12 +6,11 @@ import {
   getAccounts,
   getCurrentUserId,
   getFinancialSummary,
-  getSavedInsights,
+  getAIInsights,
   getTransactions,
+  type AIInsightsResponse,
   type Account,
   type FinancialSummary,
-  type SavedInsight,
-  type SavedInsightsResponse,
   type Transaction,
 } from "../data/api";
 import type { Forecast } from "../types";
@@ -20,12 +19,15 @@ type DashboardData = {
   accounts: Account[] | null;
   summary: FinancialSummary | null;
   transactions: Transaction[] | null;
-  insights: SavedInsight[] | null;
+  insights: AIInsightsResponse | null;
   cashFlow: Forecast[] | null;
+  cashFlowCurrency: string | null;
 };
 
 type DashboardResource = keyof DashboardData;
-type DashboardErrors = Partial<Record<DashboardResource, string>>;
+type DashboardErrors = Partial<Record<DashboardResource, string>> & {
+  dashboard?: string;
+};
 
 type MonthPeriod = {
   month: string;
@@ -39,6 +41,7 @@ const emptyData: DashboardData = {
   transactions: null,
   insights: null,
   cashFlow: null,
+  cashFlowCurrency: null,
 };
 
 function recentMonths(count: number): MonthPeriod[] {
@@ -89,18 +92,28 @@ function isAccountList(value: unknown): value is Account[] {
 }
 
 function isFinancialSummary(value: unknown): value is FinancialSummary {
-  return (
-    isRecord(value) &&
-    typeof value.user_id === "string" &&
-    isAmount(value.total_income) &&
-    isAmount(value.total_expenses) &&
-    isAmount(value.total_fees) &&
-    isAmount(value.net_cash_flow) &&
-    typeof value.transaction_count === "number" &&
-    Number.isFinite(value.transaction_count) &&
-    isRecord(value.period) &&
-    (typeof value.period.start_date === "string" || value.period.start_date === null) &&
-    (typeof value.period.end_date === "string" || value.period.end_date === null)
+  if (
+    !isRecord(value) ||
+    typeof value.user_id !== "string" ||
+    (typeof value.start_date !== "string" && value.start_date !== null) ||
+    (typeof value.end_date !== "string" && value.end_date !== null) ||
+    !isRecord(value.summary)
+  ) {
+    return false;
+  }
+
+  return Object.values(value.summary).every(
+    (currencyTotals) =>
+      isRecord(currencyTotals) &&
+      (["income", "expense", "fee"] as const).every((type) => {
+        const amount = currencyTotals[type];
+        return (
+          isRecord(amount) &&
+          isAmount(amount.total) &&
+          typeof amount.count === "number" &&
+          Number.isFinite(amount.count)
+        );
+      }),
   );
 }
 
@@ -125,24 +138,17 @@ function isTransactionList(value: unknown): value is Transaction[] {
   );
 }
 
-function isSavedInsightsResponse(value: unknown): value is SavedInsightsResponse {
+function isAIInsightsResponse(value: unknown): value is AIInsightsResponse {
   return (
     isRecord(value) &&
-    typeof value.count === "number" &&
-    Number.isFinite(value.count) &&
-    Array.isArray(value.insights) &&
-    value.insights.every(
-      (item) =>
-        isRecord(item) &&
-        typeof item.id === "string" &&
-        (item.title === undefined || typeof item.title === "string") &&
-        (item.description === undefined || typeof item.description === "string") &&
-        (item.insight_type === undefined || typeof item.insight_type === "string") &&
-        (item.category === undefined || typeof item.category === "string") &&
-        (item.message === undefined || typeof item.message === "string") &&
-        (item.severity === undefined || typeof item.severity === "string") &&
-        (item.created_at === undefined || typeof item.created_at === "string"),
-    )
+    typeof value.user_id === "string" &&
+    typeof value.period_days === "number" &&
+    Number.isFinite(value.period_days) &&
+    isAmount(value.current_spending) &&
+    isAmount(value.previous_spending) &&
+    typeof value.change_percent === "number" &&
+    Number.isFinite(value.change_percent) &&
+    typeof value.message === "string"
   );
 }
 
@@ -190,6 +196,7 @@ export function DashboardPage() {
         transactions: data.transactions,
         insights: data.insights,
         cashFlow: data.cashFlow,
+        cashFlowCurrency: data.cashFlowCurrency,
       });
       const downloadUrl = URL.createObjectURL(report.blob);
       let downloadStarted = false;
@@ -222,9 +229,9 @@ export function DashboardPage() {
       setData(emptyData);
       setErrors({});
 
-      const userId = getCurrentUserId();
-      if (!userId) {
-        if (active) {
+      try {
+        const userId = getCurrentUserId();
+        if (!userId) {
           setErrors({
             accounts: "Your session could not identify the signed-in user. Please sign in again.",
             summary: "Your session could not identify the signed-in user. Please sign in again.",
@@ -232,104 +239,128 @@ export function DashboardPage() {
             insights: "Your session could not identify the signed-in user. Please sign in again.",
             cashFlow: "Your session could not identify the signed-in user. Please sign in again.",
           });
-          setLoading(false);
-        }
-        return;
-      }
-
-      const periods = recentMonths(6);
-      const [[accountsResult, summaryResult, transactionsResult, insightsResult], monthlyResults] =
-        await Promise.all([
-          Promise.allSettled([
-            getAccounts(userId),
-            getFinancialSummary(userId),
-            getTransactions(userId, 4),
-            getSavedInsights(),
-          ]),
-          Promise.allSettled(
-            periods.map((period) =>
-              getFinancialSummary(userId, {
-                startDate: period.startDate,
-                endDate: period.endDate,
-              }),
-            ),
-          ),
-        ]);
-
-      if (!active) return;
-
-      const accounts = readResource(
-        accountsResult,
-        isAccountList,
-        "Could not load account balances.",
-      );
-      const summary = readResource(
-        summaryResult,
-        isFinancialSummary,
-        "Could not load financial totals.",
-      );
-      const transactions = readResource(
-        transactionsResult,
-        isTransactionList,
-        "Could not load recent transactions.",
-      );
-      const insights = readResource(
-        insightsResult,
-        isSavedInsightsResponse,
-        "Could not load saved insights.",
-      );
-      const cashFlow: Forecast[] = [];
-      let cashFlowError: string | undefined;
-      let successfulMonthCount = 0;
-      let monthsWithTransactions = 0;
-
-      monthlyResults.forEach((result, index) => {
-        const monthlySummary = readResource(
-          result,
-          isFinancialSummary,
-          "Could not load monthly cash-flow data.",
-        );
-        if (!monthlySummary.value) {
-          cashFlowError = monthlySummary.error ?? "Could not load monthly cash-flow data.";
           return;
         }
 
-        successfulMonthCount += 1;
-        if (monthlySummary.value.transaction_count > 0) monthsWithTransactions += 1;
-        cashFlow.push({
-          month: periods[index].month,
-          income: Number(monthlySummary.value.total_income),
-          expenses: Number(monthlySummary.value.total_expenses),
-        });
-      });
+        const periods = recentMonths(6);
+        const [[accountsResult, summaryResult, transactionsResult, insightsResult], monthlyResults] =
+          await Promise.all([
+            Promise.allSettled([
+              getAccounts(userId),
+              getFinancialSummary(userId),
+              getTransactions(userId, 4),
+              getAIInsights(),
+            ]),
+            Promise.allSettled(
+              periods.map((period) =>
+                getFinancialSummary(userId, {
+                  startDate: period.startDate,
+                  endDate: period.endDate,
+                }),
+              ),
+            ),
+          ]);
 
-      setData({
-        accounts: accounts.value,
-        summary: summary.value,
-        transactions: transactions.value,
-        insights: insights.value?.insights ?? null,
-        cashFlow:
-          successfulMonthCount === 0
-            ? null
-            : monthsWithTransactions > 0
-              ? cashFlow
-              : [],
-      });
-      setErrors({
-        ...(accounts.error ? { accounts: accounts.error } : {}),
-        ...(summary.error ? { summary: summary.error } : {}),
-        ...(transactions.error ? { transactions: transactions.error } : {}),
-        ...(insights.error ? { insights: insights.error } : {}),
-        ...(cashFlowError
-          ? {
-              cashFlow:
-                successfulMonthCount > 0
-                  ? "Some monthly periods could not be loaded; the chart shows only periods returned successfully."
-                  : cashFlowError,
-            }
-          : {}),
-      });
-      setLoading(false);
+        if (!active) return;
+
+        const accounts = readResource(
+          accountsResult,
+          isAccountList,
+          "Could not load account balances.",
+        );
+        const summary = readResource(
+          summaryResult,
+          isFinancialSummary,
+          "Could not load financial totals.",
+        );
+        const transactions = readResource(
+          transactionsResult,
+          isTransactionList,
+          "Could not load recent transactions.",
+        );
+        const insights = readResource(
+          insightsResult,
+          isAIInsightsResponse,
+          "Could not load the spending comparison.",
+        );
+        const monthlySummaries: Array<{ month: string; summary: FinancialSummary }> = [];
+        let cashFlowError: string | undefined;
+        let successfulMonthCount = 0;
+
+        monthlyResults.forEach((result, index) => {
+          const monthlySummary = readResource(
+            result,
+            isFinancialSummary,
+            "Could not load monthly cash-flow data.",
+          );
+          if (!monthlySummary.value) {
+            cashFlowError = monthlySummary.error ?? "Could not load monthly cash-flow data.";
+            return;
+          }
+
+          successfulMonthCount += 1;
+          monthlySummaries.push({
+            month: periods[index].month,
+            summary: monthlySummary.value,
+          });
+        });
+
+        const cashFlowCurrencies = new Set(
+          monthlySummaries.flatMap(({ summary }) => Object.keys(summary.summary)),
+        );
+        let cashFlow: Forecast[] | null = null;
+        let cashFlowCurrency: string | null = null;
+        if (successfulMonthCount > 0 && cashFlowCurrencies.size === 0) {
+          cashFlow = [];
+        } else if (successfulMonthCount > 0 && cashFlowCurrencies.size === 1) {
+          const [currency] = Array.from(cashFlowCurrencies);
+          cashFlowCurrency = currency;
+          cashFlow = monthlySummaries.map(({ month, summary }) => {
+            const totals = summary.summary[currency];
+            return totals
+              ? {
+                  month,
+                  income: Number(totals.income.total),
+                  expenses: Number(totals.expense.total),
+                }
+              : { month };
+          });
+        } else if (cashFlowCurrencies.size > 1) {
+          cashFlowError =
+            "Monthly cash-flow history is not charted because the backend returned multiple currencies.";
+        }
+
+        setData({
+          accounts: accounts.value,
+          summary: summary.value,
+          transactions: transactions.value,
+          insights: insights.value,
+          cashFlow,
+          cashFlowCurrency,
+        });
+        setErrors({
+          ...(accounts.error ? { accounts: accounts.error } : {}),
+          ...(summary.error ? { summary: summary.error } : {}),
+          ...(transactions.error ? { transactions: transactions.error } : {}),
+          ...(insights.error ? { insights: insights.error } : {}),
+          ...(cashFlowError
+            ? {
+                cashFlow: cashFlowError,
+              }
+            : {}),
+        });
+      } catch (error) {
+        if (active) {
+          setErrors({
+            dashboard:
+              error instanceof Error
+                ? `Could not load dashboard data: ${error.message}`
+                : "Could not load dashboard data.",
+          });
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
     }
 
     void loadDashboard();
@@ -373,8 +404,8 @@ export function DashboardPage() {
 
       {hasErrors && (
         <div className="empty-state" role="alert">
-          Some dashboard data could not be loaded. See the affected panels for
-          details.{" "}
+          {errors.dashboard ??
+            "Some dashboard data could not be loaded. See the affected panels for details."}{" "}
           <button
             className="button button-secondary"
             onClick={() => setRefreshKey((key) => key + 1)}
@@ -390,6 +421,8 @@ export function DashboardPage() {
         transactions={data.transactions}
         insights={data.insights}
         cashFlow={data.cashFlow}
+        cashFlowCurrency={data.cashFlowCurrency}
+        refreshKey={refreshKey}
         errors={errors}
         loading={loading}
       />

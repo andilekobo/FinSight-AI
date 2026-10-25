@@ -1,3 +1,4 @@
+
 const TOKEN_KEY = "finsight_access_token";
 
 function getToken(): string | null {
@@ -17,6 +18,7 @@ export function getCurrentUserId(): string | null {
     const claims = JSON.parse(decoded) as { sub?: unknown; exp?: number };
 
     if (typeof claims.sub !== "string" || !claims.sub) return null;
+
     if (typeof claims.exp === "number" && claims.exp * 1000 <= Date.now()) {
       return null;
     }
@@ -34,7 +36,10 @@ async function request<T>(
   const token = getToken();
   const headers = new Headers(options.headers);
 
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -43,14 +48,33 @@ async function request<T>(
 
   if (!response.ok) {
     const body = await response.text();
+
     if (response.status === 401) {
-      throw new Error("Your session may have expired. Please sign in again.");
+      throw new Error(
+        "Your session may have expired. Please sign in again.",
+      );
     }
-    throw new Error(`API request failed (${response.status}): ${body}`);
+
+    let message = body;
+
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown; message?: unknown };
+      if (typeof parsed.detail === "string") {
+        message = parsed.detail;
+      } else if (typeof parsed.message === "string") {
+        message = parsed.message;
+      }
+    } catch {
+      // Keep the original response body if it isn't JSON.
+    }
+
+    throw new Error(`API request failed (${response.status}): ${message}`);
   }
 
   return response.json() as Promise<T>;
 }
+
+// Accounts
 
 export interface Account {
   id: string;
@@ -61,23 +85,51 @@ export interface Account {
   balance: number | string;
 }
 
+export const getAccounts = (userId: string) =>
+  request<Account[]>(`/accounts/?user_id=${encodeURIComponent(userId)}`);
+
+// Financial analytics
+
+export type FinancialTransactionType = "income" | "expense" | "fee";
+
+export interface FinancialSummaryAmount {
+  total: number | string;
+  count: number;
+}
+
+export interface FinancialSummaryCurrencyTotals {
+  income: FinancialSummaryAmount;
+  expense: FinancialSummaryAmount;
+  fee: FinancialSummaryAmount;
+}
+
 export interface FinancialSummary {
   user_id: string;
-  total_income: string;
-  total_expenses: string;
-  total_fees: string;
-  net_cash_flow: string;
-  transaction_count: number;
-  period: {
-    start_date: string | null;
-    end_date: string | null;
-  };
+  start_date: string | null;
+  end_date: string | null;
+  summary: Record<string, FinancialSummaryCurrencyTotals>;
 }
 
 export interface FinancialSummaryFilters {
   startDate?: string;
   endDate?: string;
 }
+
+export const getFinancialSummary = (
+  userId: string,
+  filters: FinancialSummaryFilters = {},
+) => {
+  const params = new URLSearchParams({ user_id: userId });
+
+  if (filters.startDate) params.set("start_date", filters.startDate);
+  if (filters.endDate) params.set("end_date", filters.endDate);
+
+  return request<FinancialSummary>(
+    `/financial-analytics/summary?${params.toString()}`,
+  );
+};
+
+// Transactions
 
 export interface Transaction {
   id: string;
@@ -91,46 +143,17 @@ export interface Transaction {
   transaction_date: string;
 }
 
-export interface AIChatResponse {
-  answer: string;
-  transactions_considered: number;
-}
-
-export interface SavedInsight {
-  id: string;
-  title?: string;
-  description?: string;
-  insight_type?: string;
-  category?: string;
-  message?: string;
-  severity?: string;
-  created_at?: string;
-  [key: string]: unknown;
-}
-
-export interface SavedInsightsResponse {
-  count: number;
-  insights: SavedInsight[];
-}
-
-export const getAccounts = (userId: string) =>
-  request<Account[]>(`/accounts/?user_id=${encodeURIComponent(userId)}`);
-
-export const getFinancialSummary = (
-  userId: string,
-  filters: FinancialSummaryFilters = {},
-) => {
-  const params = new URLSearchParams({ user_id: userId });
-  if (filters.startDate) params.set("start_date", filters.startDate);
-  if (filters.endDate) params.set("end_date", filters.endDate);
-
-  return request<FinancialSummary>(`/financial-analytics/summary?${params}`);
-};
-
 export const getTransactions = (userId: string, limit = 100) =>
   request<Transaction[]>(
     `/transactions/?user_id=${encodeURIComponent(userId)}&limit=${limit}`,
   );
+
+// AI assistant and insights
+
+export interface AIChatResponse {
+  answer: string;
+  transactions_considered: number;
+}
 
 export const postAIChat = (message: string) =>
   request<AIChatResponse>("/ai/assistant/chat", {
@@ -138,13 +161,25 @@ export const postAIChat = (message: string) =>
     body: JSON.stringify({ message }),
   });
 
-export const getSavedInsights = () =>
-  request<SavedInsightsResponse>("/ai/insights");
+export interface AIInsightsResponse {
+  user_id: string;
+  period_days: number;
+  current_spending: number | string;
+  previous_spending: number | string;
+  change_percent: number;
+  message: string;
+}
 
+export const getAIInsights = () => request<AIInsightsResponse>("/ai/insights");
+
+// Usage
 
 export interface UsageResponse {
   tenant_id: string;
-  billing_period: { start: string; end: string };
+  billing_period: {
+    start: string;
+    end: string;
+  };
   subscription: {
     status: string;
     plan: {
@@ -176,6 +211,31 @@ export interface UsageResponse {
   metering_note?: string;
 }
 
+export interface UsageHistoryMonth {
+  month: number;
+  label: string;
+  api_calls: number;
+  total_billable_tokens: number;
+  actual_cost_zar: number | string;
+  projected_cost_zar: number | string | null;
+}
+
+export interface UsageHistoryResponse {
+  year: number;
+  currency: string;
+  has_data: boolean;
+  monthly: UsageHistoryMonth[];
+}
+
+export const getUsageHistory = (year?: number) =>
+  request<UsageHistoryResponse>(
+    `/usage/history${year ? `?year=${year}` : ""}`,
+  );
+
+export const getUsage = () => request<UsageResponse>("/usage/me");
+
+// Billing
+
 export interface BillingResponse {
   tenant_id: string;
   subscription: {
@@ -192,8 +252,9 @@ export interface BillingResponse {
   message: string;
 }
 
-export const getUsage = () => request<UsageResponse>("/usage/me");
 export const getBilling = () => request<BillingResponse>("/billing/me");
+
+// Investec sandbox
 
 export interface InvestecSandboxAccount {
   accountId: string;
@@ -227,4 +288,42 @@ export const getInvestecSandboxAccounts = () =>
 export const syncInvestecSandbox = () =>
   request<InvestecSyncResponse>("/investec/sync", {
     method: "POST",
+  });
+
+// Password recovery
+
+export interface PasswordRecoveryMessage {
+  message: string;
+}
+
+export interface PasswordResetVerificationResponse {
+  reset_token: string;
+  expires_in_seconds: number;
+}
+
+export const requestPasswordReset = (email: string) =>
+  request<PasswordRecoveryMessage>("/auth/password/forgot", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+
+export const resendPasswordResetCode = (email: string) =>
+  request<PasswordRecoveryMessage>("/auth/password/resend", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+
+export const verifyPasswordResetCode = (email: string, code: string) =>
+  request<PasswordResetVerificationResponse>("/auth/password/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+
+export const resetPassword = (token: string, newPassword: string) =>
+  request<PasswordRecoveryMessage>("/auth/password/reset", {
+    method: "POST",
+    body: JSON.stringify({
+      token,
+      new_password: newPassword,
+    }),
   });

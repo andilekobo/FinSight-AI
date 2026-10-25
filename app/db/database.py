@@ -1,10 +1,10 @@
-from sqlalchemy import create_engine
+﻿from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import DATABASE_URL
 
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, connect_args={"prepare_threshold": None})
 
 SessionLocal = sessionmaker(
     autocommit=False,
@@ -30,3 +30,4 @@ if __name__ == "__main__":
     except Exception as e:
         print("Database connection failed:")
         print(e)
+

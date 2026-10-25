@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,7 +11,7 @@ from app.models.user import User
 from app.services.stripe_service import create_checkout_session
 from app.services.tenant_service import ensure_billing_for_user
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)], )
 
 
 class CheckoutRequest(BaseModel):
@@ -81,3 +81,4 @@ def create_checkout(
             status_code=502,
             detail="Checkout session could not be created.",
         )
+

@@ -3,13 +3,13 @@ import { ArrowRight, Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   getAccounts,
+  getAIInsights,
   getCurrentUserId,
   getFinancialSummary,
-  getSavedInsights,
   getTransactions,
+  type AIInsightsResponse,
   type Account,
   type FinancialSummary,
-  type SavedInsight,
   type Transaction,
 } from "../../data/api";
 import { formatCurrency } from "../../utils/currency";
@@ -27,7 +27,7 @@ type SearchData = {
   accounts: Account[];
   summary: FinancialSummary | null;
   transactions: Transaction[];
-  insights: SavedInsight[];
+  insights: AIInsightsResponse | null;
   loading: boolean;
   unavailable: string[];
 };
@@ -36,7 +36,7 @@ const emptySearchData: SearchData = {
   accounts: [],
   summary: null,
   transactions: [],
-  insights: [],
+  insights: null,
   loading: true,
   unavailable: [],
 };
@@ -68,7 +68,7 @@ export function GlobalSearch({ destinations }: { destinations: Destination[] }) 
         getAccounts(userId),
         getFinancialSummary(userId),
         getTransactions(userId, 500),
-        getSavedInsights(),
+        getAIInsights(),
       ]);
       if (!active) return;
 
@@ -82,9 +82,9 @@ export function GlobalSearch({ destinations }: { destinations: Destination[] }) 
       const transactions = transactionsResult.status === "fulfilled" && Array.isArray(transactionsResult.value)
         ? transactionsResult.value
         : (unavailable.push("transactions"), []);
-      const insights = insightsResult.status === "fulfilled" && Array.isArray(insightsResult.value?.insights)
-        ? insightsResult.value.insights
-        : (unavailable.push("saved insights"), []);
+      const insights = insightsResult.status === "fulfilled"
+        ? insightsResult.value
+        : (unavailable.push("spending comparison"), null);
 
       setData({ accounts, summary, transactions, insights, loading: false, unavailable });
     }
@@ -155,27 +155,45 @@ export function GlobalSearch({ destinations }: { destinations: Destination[] }) 
       }
     });
 
-    data.insights.forEach((insight) => {
-      const searchable = `${insight.title ?? ""} ${insight.description ?? ""} ${insight.insight_type ?? ""} ${insight.category ?? ""} ${insight.message ?? ""} ${insight.severity ?? ""}`;
+    if (data.insights) {
+      const insight = data.insights;
+      const searchable = [
+        insight.message,
+        insight.period_days,
+        insight.current_spending,
+        insight.previous_spending,
+        insight.change_percent,
+      ].join(" ");
       if (matchesQuery(searchable, term)) {
         found.push({
-          id: `insight:${insight.id}`,
-          title: insight.title || insight.insight_type || "Saved insight",
-          detail: insight.description || insight.message || insight.category || "Saved financial insight",
+          id: "spending-comparison",
+          title: `${insight.period_days}-day spending comparison`,
+          detail: `${insight.message} Current ${insight.current_spending}; previous ${insight.previous_spending}; change ${insight.change_percent}%. Currency not supplied.`,
           path: "/ai-insights",
           kind: "Insight",
         });
       }
-    });
+    }
 
     if (data.summary) {
       const summary = data.summary;
-      const searchable = `financial summary total income ${summary.total_income} expenses ${summary.total_expenses} fees ${summary.total_fees} net cash flow ${summary.net_cash_flow} transaction count ${summary.transaction_count}`;
+      const currencyBreakdowns = Object.entries(summary.summary).map(
+        ([currency, totals]) => {
+          const income = Number(totals.income.total);
+          const expenses = Number(totals.expense.total);
+          const fees = Number(totals.fee.total);
+          const netCashFlow = income - expenses - fees;
+          return `${currency} income ${totals.income.total} expenses ${totals.expense.total} fees ${totals.fee.total} net cash flow ${netCashFlow} transactions ${totals.income.count + totals.expense.count + totals.fee.count}`;
+        },
+      );
+      const searchable = `financial summary ${currencyBreakdowns.join(" ")}`;
       if (matchesQuery(searchable, term)) {
         found.push({
           id: "financial-summary",
           title: "Financial summary",
-          detail: `Income ${summary.total_income} · Expenses ${summary.total_expenses} · Net cash flow ${summary.net_cash_flow} · Currency not supplied`,
+          detail: currencyBreakdowns.length
+            ? currencyBreakdowns.join(" · ")
+            : "No financial totals were returned.",
           path: "/financial",
           kind: "Financial",
         });
