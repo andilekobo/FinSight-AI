@@ -34,3 +34,7 @@ security_backup_*/
 frontend/usage_chart_backup_*/
 patch_finsight.py
 patch_usage.py
+
+# Deployment: exclude local backup files
+*.backup
+*_backup_*.py
