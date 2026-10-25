@@ -1,5 +1,6 @@
 from app.api.routes import ai_assistant
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     accounts,
@@ -17,7 +18,17 @@ from app.api.routes import (
 app = FastAPI(
     title="FinSight AI API",
     description="AI-powered financial and technology spending intelligence platform",
-    version="1.0.0",
+version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://finsight-ai-frontend-t769.onrender.com",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(auth.router)

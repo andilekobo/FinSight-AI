@@ -1,5 +1,6 @@
 
 const TOKEN_KEY = "finsight_access_token";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 
 function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -44,7 +45,7 @@ async function request<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
 
   if (!response.ok) {
     const body = await response.text();
