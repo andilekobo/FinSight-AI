@@ -1,6 +1,6 @@
 
 const TOKEN_KEY = "finsight_access_token";
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 
 function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);

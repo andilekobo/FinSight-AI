@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "../data/api";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -75,7 +76,7 @@ export function AuthPage() {
     );
 
     try {
-      const response = await fetch(isRegister ? "/auth/register" : "/auth/login", {
+      const response = await fetch(`${API_BASE_URL}${isRegister ? "/auth/register" : "/auth/login"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -176,7 +177,7 @@ export function AuthPage() {
             <span><Check size={13} /> Built around you</span>
           </div>
         </div>
-        <div className="auth-story-footer"><span>© 2025 FinSight AI</span><span className="auth-footer-dot" /> A more thoughtful way to manage money</div>
+        <div className="auth-story-footer"><span>Â© 2025 FinSight AI</span><span className="auth-footer-dot" /> A more thoughtful way to manage money</div>
       </section>
 
       <section className="auth-panel" aria-label={isRegister ? "Create your account" : "Sign in"}>
@@ -284,7 +285,7 @@ export function AuthPage() {
 
         <div className="auth-panel-footer">
           <span>Thoughtful tools for your financial life</span>
-          <span className="auth-rating"><span>★★★★★</span> Made for clarity</span>
+          <span className="auth-rating"><span>â˜…â˜…â˜…â˜…â˜…</span> Made for clarity</span>
         </div>
       </section>
     </main>
