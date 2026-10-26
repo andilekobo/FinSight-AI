@@ -65,17 +65,17 @@ def _secret_hash(value: str) -> str:
 
 
 def _send_reset_code(email: str, code: str) -> None:
-    api_key = os.getenv("RESEND_API_KEY")
-    from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+    api_key = os.getenv("BREVO_API_KEY")
+    sender_email = os.getenv("BREVO_FROM_EMAIL")
 
-    if not api_key:
-        raise RuntimeError("Resend email configuration is incomplete.")
+    if not api_key or not sender_email:
+        raise RuntimeError("Brevo email configuration is incomplete.")
 
     payload = {
-        "from": f"FinSight AI <{from_email}>",
-        "to": [email],
+        "sender": {"name": "FinSight AI", "email": sender_email},
+        "to": [{"email": email}],
         "subject": "FinSight AI - Password Reset Code",
-        "text": (
+        "textContent": (
             f"Your FinSight AI password reset code is: {code}\n\n"
             "This code expires in 10 minutes. "
             "If you did not request a password reset, ignore this email."
@@ -83,11 +83,12 @@ def _send_reset_code(email: str, code: str) -> None:
     }
 
     req = urllib.request.Request(
-        "https://api.resend.com/emails",
+        "https://api.brevo.com/v3/smtp/email",
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+            "accept": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json",
         },
         method="POST",
     )
@@ -95,22 +96,15 @@ def _send_reset_code(email: str, code: str) -> None:
     try:
         with urllib.request.urlopen(req, timeout=20) as response:
             if response.status not in (200, 201, 202):
-                raise RuntimeError(
-                    f"Resend returned HTTP {response.status}."
-                )
+                raise RuntimeError(f"Brevo returned HTTP {response.status}.")
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
-        logger.error(
-            "Resend rejected email: HTTP %s; response: %s",
-            exc.code,
-            error_body,
-        )
-        raise RuntimeError(
-            f"Resend email request failed (HTTP {exc.code})."
-        ) from exc
+        logger.error("Brevo rejected email: HTTP %s; response: %s", exc.code, error_body)
+        raise RuntimeError(f"Brevo email request failed (HTTP {exc.code}).") from exc
     except urllib.error.URLError as exc:
-        logger.error("Could not connect to Resend: %s", exc.reason)
+        logger.error("Could not connect to Brevo: %s", exc.reason)
         raise RuntimeError("Could not connect to the email provider.") from exc
+
 
 @router.post(
     "/register",
