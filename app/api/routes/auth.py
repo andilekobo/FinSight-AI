@@ -1,4 +1,4 @@
-
+﻿
 import hashlib
 import hmac
 import logging
@@ -62,34 +62,47 @@ def _secret_hash(value: str) -> str:
 
 
 def _send_reset_code(email: str, code: str) -> None:
-    host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    port = int(os.getenv("SMTP_PORT", "587"))
-    username = os.getenv("SMTP_USERNAME")
-    password = os.getenv("SMTP_PASSWORD")
-    from_email = os.getenv("SMTP_FROM_EMAIL", username)
-    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+    api_key = os.getenv("RESEND_API_KEY")
+    from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
 
-    if not username or not password or not from_email:
-        raise RuntimeError("SMTP configuration is incomplete.")
+    if not api_key:
+        raise RuntimeError("Resend email configuration is incomplete.")
 
-    msg = EmailMessage()
-    msg["Subject"] = "FinSight - Password Reset Code"
-    msg["From"] = from_email
-    msg["To"] = email
-    msg.set_content(
-        f"Your FinSight password reset code is: {code}\n\n"
-        "This code expires in 10 minutes. "
-        "If you did not request a password reset, ignore this email."
+    payload = {
+        "from": f"FinSight AI <{from_email}>",
+        "to": [email],
+        "subject": "FinSight AI - Password Reset Code",
+        "text": (
+            f"Your FinSight AI password reset code is: {code}\n\n"
+            "This code expires in 10 minutes. "
+            "If you did not request a password reset, ignore this email."
+        ),
+    }
+
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
 
-    with smtplib.SMTP(host, port, timeout=30) as server:
-        server.ehlo()
-        if use_tls:
-            server.starttls()
-            server.ehlo()
-        server.login(username, password)
-        server.send_message(msg)
-
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            if response.status not in (200, 201, 202):
+                raise RuntimeError(
+                    f"Resend returned HTTP {response.status}."
+                )
+    except urllib.error.HTTPError as exc:
+        logger.error("Resend rejected the email request (HTTP %s).", exc.code)
+        raise RuntimeError(
+            f"Resend email request failed (HTTP {exc.code})."
+        ) from exc
+    except urllib.error.URLError as exc:
+        logger.error("Could not connect to Resend: %s", exc.reason)
+        raise RuntimeError("Could not connect to the email provider.") from exc
 
 @router.post(
     "/register",
@@ -322,3 +335,4 @@ def reset_password(
 
     db.commit()
     return {"message": "Password reset successful. You can now log in."}
+
