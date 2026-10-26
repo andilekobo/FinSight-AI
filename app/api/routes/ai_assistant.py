@@ -154,8 +154,11 @@ Conversation and reliability rules:
                     or "UNAVAILABLE" in error_text
                 )
 
-                if not is_temporary or attempt == 2:
+                if not is_temporary:
                     raise
+                if attempt == 2:
+                    response = None
+                    break
 
                 delay = 2 ** (attempt + 1)
                 print(
@@ -165,7 +168,11 @@ Conversation and reliability rules:
                 )
                 __import__("time").sleep(delay)
 
-        answer = getattr(response, "text", None)
+        answer = getattr(response, "text", None) or (
+            "FinSight AI's AI provider is temporarily busy. "
+            "You can still review your dashboard, transactions, and "
+            "financial analytics. Please try your question again shortly."
+        )
 
         if not answer:
             raise HTTPException(
