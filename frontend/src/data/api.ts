@@ -1,6 +1,6 @@
-
+﻿
 const TOKEN_KEY = "finsight_access_token";
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "https://finsight-ai-yms3.onrender.com").replace(/\/+$/, "");
 
 function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -72,7 +72,17 @@ async function request<T>(
     throw new Error(`API request failed (${response.status}): ${message}`);
   }
 
-  return response.json() as Promise<T>;
+  const responseText = await response.text();
+
+  if (!responseText.trim()) {
+    return undefined as T;
+  }
+
+  try {
+    return JSON.parse(responseText) as T;
+  } catch {
+    throw new Error("The API returned an invalid response. Please try again.");
+  }
 }
 
 // Accounts
@@ -328,3 +338,5 @@ export const resetPassword = (token: string, newPassword: string) =>
       new_password: newPassword,
     }),
   });
+
+
