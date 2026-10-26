@@ -155,7 +155,12 @@ Conversation and reliability rules:
                 )
 
                 if not is_temporary:
-                    raise
+                    print(
+                        f"Gemini request failed: {type(exc).__name__}: "
+                        f"{str(exc)[:300]}"
+                    )
+                    response = None
+                    break
                 if attempt == 2:
                     response = None
                     break
