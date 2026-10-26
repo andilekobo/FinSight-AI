@@ -99,7 +99,12 @@ def _send_reset_code(email: str, code: str) -> None:
                     f"Resend returned HTTP {response.status}."
                 )
     except urllib.error.HTTPError as exc:
-        logger.error("Resend rejected the email request (HTTP %s).", exc.code)
+        error_body = exc.read().decode("utf-8", errors="replace")
+        logger.error(
+            "Resend rejected email: HTTP %s; response: %s",
+            exc.code,
+            error_body,
+        )
         raise RuntimeError(
             f"Resend email request failed (HTTP {exc.code})."
         ) from exc
@@ -338,6 +343,7 @@ def reset_password(
 
     db.commit()
     return {"message": "Password reset successful. You can now log in."}
+
 
 
 
